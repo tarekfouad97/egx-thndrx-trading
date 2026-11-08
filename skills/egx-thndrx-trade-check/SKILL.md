@@ -23,7 +23,7 @@ Scripts live in this skill's `scripts/` folder (call it `$S`; it is the base dir
 
 ## 0. Setup (each session, silent)
 - Read `config.json` in this skill folder (`python3 $S/egx.py config`). If the trade-log sheet id is set and the Google Sheets connector is on, read its **Settings** tab (risk %, equity, fees, fixed costs); Settings wins over config.
-- Load the Claude in Chrome tools in one ToolSearch call (tabs_context_mcp, tabs_create_mcp, navigate, computer, javascript_tool, find).
+- Load the Claude in Chrome tools in one ToolSearch call (tabs_context_mcp, tabs_create_mcp, navigate, computer, javascript_tool, find, get_page_text).
 - New tab -> https://x.thndr.app/workspaces/default/trade, wait 3 s, then load the script:
   1. `javascript_tool`: `typeof EGX!=='undefined'?EGX.version:(localStorage.getItem('EGX_JS')?((0,eval)(localStorage.getItem('EGX_JS')),EGX.version):'missing')`
   2. If the answer is not the version in the first lines of `$S/egx_chart.js`, read `$S/egx_chart.loader.js` and run its whole text once with `javascript_tool` (it runs and caches itself; later sessions only need step 1).
@@ -31,7 +31,7 @@ Scripts live in this skill's `scripts/` folder (call it `$S`; it is the base dir
 
 ## 1. check TICKER
 1. `await EGX.deep('TICKER')` -> opens it, runs blocks A-I, draws entry / stop / target / zones / trendline, reads the order book, price band, cash and the financial tab, and stores 120 candles. Read only what you need from the result (`plan`, `zones`, `rs`, `score`, `drop`, `evidence`, `page`, `flags`).
-2. Screenshot the chart with `computer` `screenshot` + `save_to_disk: true` (keep the path for the report).
+2. **Chart screenshot (mandatory evidence; `egx.py check` fails without it).** Move the mouse off the chart (`computer` `mouse_move` to the watchlist), then `EGX.chartRect(4)` -> `region` (CSS px) and `viewport`. Take one `computer` `screenshot` to learn its frame width, scale the region by frame width / `viewport[0]`, and capture it with `computer` `zoom` (`region` scaled, `save_to_disk: true`). Keep the saved path and the time (`screenshot`, `shot_at`). Same for EGX30 once per run (`market.screenshot`).
 3. News (mandatory): at least 2 WebSearch queries (English + Arabic: ticker, company name, Arabic name + البورصة). Keep only dated items; fresh = 48 h. Flag red events (results date, ex-date, suspension, capital increase, regulatory action) and catalysts (merger / acquisition / tender offer, expansion, contract, license, bonus shares, buyback, strong results), and whether the price already moved on them (% and ATRs since the date).
 4. **Verdict** (Claude may only downgrade these, never upgrade):
    - script `drop` set -> ❌ with the drop reason.
@@ -65,8 +65,8 @@ Google Sheet tabs: Trades, Monthly, Recommendations, Settings. Use `get_values` 
 Never open report files to search. `python3 $S/egx.py search --ticker X` (or `--command`, `--since`) reads `index.csv`; `egx.py history X` lists every past verdict and plan; `egx.py read FILE --ticker X` prints only that stock's saved data. Reports live in the reports folder (§6).
 
 ## 6. Run file, report and where it is saved
-- Build the run file in the working directory: `EGX.exportRun(['TK',...])` in the page returns JSON (full detail for the listed tickers, summary rows for the rest); paste it into `run.json`, add `meta`, `market`, `holdings`, `catalysts` and per stock `verdict`, `reasons`, `wait_for`, `news`, `red_events`, `screenshot`, `sector`. Format: `references/run-schema.md`.
-- `python3 $S/egx.py check run.json`, fix every line it prints, then `python3 $S/egx.py report run.json --out <reports folder>` (add `--video` to also write a HyperFrames recap project the user can render to MP4 with the command it prints).
+- Build the run file in the working directory: `EGX.exportToPage(['TK',...])` puts the JSON in a page overlay (javascript_tool output is cut at about 1.5 KB); read it with `get_page_text` between `EGX-EXPORT-BEGIN` and `EGX-EXPORT-END`, then run `EGX.clearExport()`. The JSON holds (full detail for the listed tickers, summary rows for the rest); paste it into `run.json`, add `meta`, `market`, `holdings`, `catalysts` and per stock `verdict`, `reasons`, `wait_for`, `news`, `red_events`, `screenshot`, `sector`. Format: `references/run-schema.md`.
+- `python3 $S/egx.py check run.json`, fix every line it prints, then `python3 $S/egx.py report run.json --out <reports folder>` (add `--video` to also write a HyperFrames recap project, and `--render` to render it to MP4 when Node and Chrome are present). Check the report: the chart pictures must show the drawn `EGX·` lines.
 - Reports folder, first that works:
   1. Claude Code / desktop with the folder reachable: `reports_dir` from config (default `~/EGX-Reports`).
   2. Cloud session with the user's computer linked: stage the folder's `index.csv` (if any) into a local folder, run `report --out` there, then write the HTML and `index.csv` back with the device bridge.

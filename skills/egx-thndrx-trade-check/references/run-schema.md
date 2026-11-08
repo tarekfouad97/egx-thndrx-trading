@@ -2,7 +2,7 @@
 
 Every command ends by writing one run file and calling
 `python3 scripts/egx.py report run.json`. Most of the file is pasted straight from the
-browser (`EGX.exportRun(...)`); Claude only adds verdicts, reasons and news.
+browser (`EGX.exportToPage(...)` read with get_page_text, or `EGX.exportRun(...)` for short output); Claude only adds verdicts, reasons and news.
 See `examples/sample-run.json` in the repo for a complete example.
 
 ```jsonc
@@ -39,7 +39,9 @@ See `examples/sample-run.json` in the repo for a complete example.
       "news": [{ "title": "", "source": "", "url": "", "date": "YYYY-MM-DD", "impact": "+|0|-", "fresh": true, "summary": "" }],
       "news_checked": true,          // set when the search found nothing dated
       "red_events": [{ "type": "results|ex-date|suspension|capital increase", "date": "", "source": "", "url": "" }],
-      "screenshot": "/path/to/chart.jpg",   // saved with save_to_disk; embedded in the report
+      "screenshot": "/path/to/chart.jpg",   // REQUIRED: cropped ThndrX chart with the EGX· lines, saved with zoom + save_to_disk; embedded in the report
+      "shot_at": "2026-11-09 00:05",        // when the screenshot was taken
+      "spark": [ /* last 30 closes, from the export */ ],
       "votes": { "trend": { "verdict": "Valid", "confidence": 4, "facts": [] } }   // Loop 30 Max only
     }
   ],
@@ -54,7 +56,7 @@ See `examples/sample-run.json` in the repo for a complete example.
 
 Rules enforced by `egx.py check` (the report refuses to build otherwise, unless `--force`):
 - every news item and catalyst has a `url` and a `date`;
-- every deep-checked stock (valid / wait / not_valid) has news (or `news_checked: true`) and drawings (`drawn` or `screenshot`);
+- every deep-checked stock (valid / wait / not_valid) has news (or `news_checked: true`) and a `screenshot` of the drawn chart (the file must exist); `market.screenshot` (EGX30) is optional;
 - `valid` is impossible when the chart script dropped the stock or R:R < 2.
 
 `egx.py allocate` adds `allocation` (shares, values, risk, fees, gain/loss, break-even) and

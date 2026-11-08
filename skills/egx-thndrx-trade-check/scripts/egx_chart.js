@@ -18,8 +18,8 @@
  * Rules are documented in references/analysis-rules.md (keep both in sync).
  */
 (function () {
-  if (window.EGX && window.EGX.version === '2.0.2') return;
-  const VERSION = '2.0.2';
+  if (window.EGX && window.EGX.version === '2.0.3') return;
+  const VERSION = '2.0.4';
   const MARK = 'EGX·'; // prefix on every drawing label, so we only ever clear our own lines
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const clean = (s) => String(s || '').replace(/[‎‏؜]/g, '').trim();
@@ -153,6 +153,7 @@
     const macd = C.map((_, i) => (e12[i] != null && e26[i] != null ? e12[i] - e26[i] : null));
     const sig = emaArr(macd.map((x) => (x == null ? 0 : x)), 9);
     const hist = macd.map((x, i) => (x == null || i < 35 ? null : x - sig[i]));
+    R.spark = C.slice(-30).map((x) => tick(x));
     R.last = tick(last); R.chg = r2((last / prev - 1) * 100); R.date = dt(B[n - 1].t);
     R.atr = r2(atr, 3); R.atrPct = r2((atr / last) * 100);
     // A. trend
@@ -406,8 +407,16 @@
     const regime = last > ma50 && rising && last > ma200 ? 'Up' : last < ma50 && !rising && last < ma200 ? 'Down' : 'Correction';
     const hi = Math.max(...B.map((b) => b.h));
     const { PH, PL } = pivots(B, n - 130);
-    S.index = { date: dt(B[n - 1].t), last: r2(last), ma20: r2(ma20), ma50: r2(ma50), ma50Slope: r2((ma50 / ma50p - 1) * 100), ma200: r2(ma200), ch20: r2((last / C[n - 21] - 1) * 100), ch60: r2((last / C[n - 61] - 1) * 100), fromHigh: r2((last / hi - 1) * 100), regime, lastHighs: PH.slice(-2).map((p) => [p.d, r2(p.p)]), lastLows: PL.slice(-2).map((p) => [p.d, r2(p.p)]) };
+    S.index = { spark: C.slice(-60).map((x) => r2(x)), date: dt(B[n - 1].t), last: r2(last), ma20: r2(ma20), ma50: r2(ma50), ma50Slope: r2((ma50 / ma50p - 1) * 100), ma200: r2(ma200), ch20: r2((last / C[n - 21] - 1) * 100), ch60: r2((last / C[n - 61] - 1) * 100), fromHigh: r2((last / hi - 1) * 100), regime, lastHighs: PH.slice(-2).map((p) => [p.d, r2(p.p)]), lastLows: PL.slice(-2).map((p) => [p.d, r2(p.p)]) };
     store('index', S.index); return { ok: true, ...S.index };
+  }
+
+  // viewport rectangle of the chart (CSS px) -> pass to the computer `zoom` action with save_to_disk
+  function chartRect(pad = 0) {
+    const f = [...document.querySelectorAll('iframe')].find((x) => { try { return x.contentWindow.tradingViewApi; } catch (e) { return false; } });
+    if (!f) return null;
+    const r = f.getBoundingClientRect();
+    return { region: [Math.max(0, Math.round(r.left - pad)), Math.max(0, Math.round(r.top - pad)), Math.round(r.right + pad), Math.round(r.bottom + pad)], viewport: [innerWidth, innerHeight] };
   }
 
   function save(tk, R) { S.results[tk] = R; store('results', S.results); return R; }
@@ -442,12 +451,25 @@
     const out = { egxjs: VERSION, index: S.index, stocks: [] };
     for (const [tk, R] of Object.entries(S.results)) {
       if (full.includes(tk)) out.stocks.push(R);
-      else out.stocks.push({ tk, title: R.title, last: R.last, chg: R.chg, trend: R.trend, rs: R.rs, plan: R.plan, volume: R.volume && { avgValueM: R.volume.avgValueM }, score: R.score, drop: R.drop, bars: R.bars });
+      else out.stocks.push({ tk, title: R.title, last: R.last, chg: R.chg, spark: R.spark, trend: R.trend, rs: R.rs, plan: R.plan, volume: R.volume && { avgValueM: R.volume.avgValueM }, score: R.score, drop: R.drop, bars: R.bars });
     }
     return JSON.stringify({ ...out, ...extra });
   }
 
-  window.EGX = { version: VERSION, open, bars, analyze, scan, deep, draw, page, holdings, financials, market, marketPage, candlesNow,
-    get: (tk) => S.results[tk], summary: (tk) => summary(S.results[tk]), exportRun, reset: () => { S.results = {}; store('results', {}); return 'ok'; } };
+  // javascript_tool output is cut at ~1.5 KB, so long JSON is put in a page overlay and read with get_page_text.
+  function exportToPage(full = [], extra = {}) {
+    const json = exportRun(full, extra);
+    clearExport();
+    const a = document.createElement('article');
+    a.id = 'egx-export';
+    a.style.cssText = 'position:fixed;inset:0;z-index:2147483647;overflow:auto;background:#fff;color:#000;font:12px monospace;white-space:pre-wrap;padding:8px';
+    a.textContent = 'EGX-EXPORT-BEGIN\n' + json + '\nEGX-EXPORT-END';
+    document.body.appendChild(a);
+    return 'exported ' + json.length + ' chars: read with get_page_text, then EGX.clearExport()';
+  }
+  function clearExport() { const e = document.getElementById('egx-export'); if (e) e.remove(); return 'cleared'; }
+
+  window.EGX = { version: VERSION, open, bars, analyze, scan, deep, draw, page, holdings, financials, market, marketPage, candlesNow, chartRect,
+    get: (tk) => S.results[tk], summary: (tk) => summary(S.results[tk]), exportRun, exportToPage, clearExport, reset: () => { S.results = {}; store('results', {}); return 'ok'; } };
 })();
 'EGX ' + window.EGX.version + ' ready';

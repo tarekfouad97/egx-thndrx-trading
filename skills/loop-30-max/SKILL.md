@@ -21,8 +21,8 @@ loop-30 §1 (the check skill's my positions), at full depth for every held stock
 - Macro calendar for the next 5 trading days (CBE rate decision, inflation print, holidays, results season) into `market.macro`.
 
 ## 3. Full check on every stock (no quick scan)
-For every stock in the universe (official EGX30 with a dated source, else top 30 by market cap, plus catalyst stocks): `await EGX.deep(tk)` (it also runs the **setup history test**), screenshot with `save_to_disk`, news with 2+ searches (extended when standard finds nothing dated in 30 days). Only the main session uses Chrome; agents never open the browser.
-Then `EGX.exportRun([...all tickers])` -> `loop30max/datapack-YYYY-MM-DD.json` in the working directory, adding news, catalysts, red events and screenshots per stock.
+For every stock in the universe (official EGX30 with a dated source, else top 30 by market cap, plus catalyst stocks): `await EGX.deep(tk)` (it also runs the **setup history test**), cropped chart screenshot (check skill §1.2), news with 2+ searches (extended when standard finds nothing dated in 30 days). Only the main session uses Chrome; agents never open the browser.
+Then `EGX.exportToPage([...all tickers])` + `get_page_text` + `EGX.clearExport()` (check skill §4) -> `loop30max/datapack-YYYY-MM-DD.json` in the working directory, adding news, catalysts, red events and screenshots per stock.
 
 ## 4. Filters
 The script's drop reasons (`references/analysis-rules.md`); list every drop.

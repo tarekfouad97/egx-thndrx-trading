@@ -31,7 +31,8 @@
 
 ## Reports
 - Name: `EGX_<Command>_<YYYY-MM-DD>_<HH-MM>.html`, e.g. `EGX_Loop30_2026-11-08_21-30.html`.
-- One self-contained file: ThndrX-style dark UI (RTL Arabic or English), Apple-style type, translucent header, collapsible evidence (chart evidence with bar dates, news with links, order book, financials, analyst votes), candlestick SVG per stock with the plan levels, the ThndrX chart screenshot, and an animated HyperFrames recap at the top.
+- One self-contained file in the palette #0F171B / #122D39 / #2C697F / #D6B9B9 / #8A4C1C / #311F15 with Apple Liquid Glass only on the floating top bar and bottom dock (RTL Arabic or English). Each checked stock shows a **cropped screenshot of the real ThndrX chart with the drawn `EGX·` lines** as evidence (tap to enlarge), the plan grid, the reasons, and folded evidence (chart evidence with bar dates, news with links, order book, financials, analyst votes). A 12-second HyperFrames recap opens from the top bar.
+- Big JSON leaves the page through an overlay read with `get_page_text` (`EGX.exportToPage` / `EGX.clearExport`), because `javascript_tool` output is cut at about 1.5 KB.
 - Machine-readable: the whole run is embedded as JSON (`script#egx-data`) and a summary in `<meta name="egx-report">`.
 - `index.csv` columns: file, created, trading_day, command, regime, egx30, amount, deployed, cash_left, tickers, valid, wait, not_valid, holdings, holding_actions, top_pick, catalysts, summary.
 
