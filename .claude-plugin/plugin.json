@@ -1,0 +1,9 @@
+{
+  "name": "egx-thndrx-trading",
+  "version": "0.1.0",
+  "description": "Tarek's EGX trading helpers on ThndrX: single-stock trade check with chart drawings and news, the Loop 30 scan with catalyst search and allocation, and the deep Loop 30 Max scan with five analyst passes. Read-only on the account; never places orders.",
+  "author": {
+    "name": "Tarek"
+  },
+  "keywords": ["egx", "thndr", "trading", "egypt", "stocks"]
+}
