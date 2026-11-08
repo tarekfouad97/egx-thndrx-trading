@@ -1,0 +1,33 @@
+{
+  "user_name": "Your name",
+  "language": "ar",
+  "timezone": "Africa/Cairo",
+  "reports_dir": "~/EGX-Reports",
+  "reports_repo": "",
+  "trade_log_sheet_id": "",
+  "risk_pct": 1.0,
+  "max_stock_pct": 30.0,
+  "max_sector_pct": 50.0,
+  "min_order_egp": 2500,
+  "half_deploy_in_weak_market": true,
+  "fees": {
+    "per_order_egp": 2.0,
+    "brokerage_custody_pct": 0.100,
+    "egx_pct": 0.010,
+    "mcdr_pct": 0.010,
+    "risk_fund_pct": 0.005,
+    "stamp_pct": 0.050,
+    "fra_pct": 0.003,
+    "fra_min_egp": 1.0,
+    "fra_max_egp": 250.0
+  },
+  "fixed_costs": {
+    "thndr_plan_egp": 245.0,
+    "claude_usd": 20.0
+  },
+  "footer": {
+    "author": "Tarek Fouad",
+    "email": "tare2fo2ad@gmail.com",
+    "repo": "https://github.com/tarekfouad97/egx-thndrx-trading"
+  }
+}

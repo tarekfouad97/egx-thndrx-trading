@@ -1,9 +1,13 @@
 {
   "name": "egx-thndrx-trading",
-  "version": "0.1.0",
-  "description": "Tarek's EGX trading helpers on ThndrX: single-stock trade check with chart drawings and news, the Loop 30 scan with catalyst search and allocation, and the deep Loop 30 Max scan with five analyst passes. Read-only on the account; never places orders.",
+  "version": "0.2.0",
+  "description": "EGX trading helpers on ThndrX: scripted chart analysis with drawings, news and catalysts, positions review (hold / sell / add), Loop 30 and Loop 30 Max allocation, and ThndrX-style HTML reports with evidence and an index for history search. Read-only on the account; never places orders.",
   "author": {
-    "name": "Tarek"
+    "name": "Tarek Fouad",
+    "email": "tare2fo2ad@gmail.com"
   },
-  "keywords": ["egx", "thndr", "trading", "egypt", "stocks"]
+  "homepage": "https://github.com/tarekfouad97/egx-thndrx-trading",
+  "repository": "https://github.com/tarekfouad97/egx-thndrx-trading",
+  "license": "MIT",
+  "keywords": ["egx", "thndr", "thndrx", "trading", "egypt", "stocks", "reports"]
 }

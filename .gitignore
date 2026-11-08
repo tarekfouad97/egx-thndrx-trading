@@ -1,0 +1,15 @@
+# personal settings and outputs
+skills/egx-thndrx-trade-check/config.json
+dist/
+reports/
+EGX-Reports/
+*.mp4
+run.json
+loop30max/
+
+# system
+.DS_Store
+__pycache__/
+*.pyc
+node_modules/
+.claude/
