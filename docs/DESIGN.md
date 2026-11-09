@@ -105,7 +105,7 @@ uploaded to Drive with each report so the memory survives a new computer.
 1. ✔ Chart script v3.0.0: boxes, new marks, MAs, `verifyChart`, receipts, `intraday` (tests: `tests/test_chart_draw.js`).
 2. ✔ `egx.py` 3.0.0: `verdict` (the only way a verdict is set), strict `check`, printed checklist, no `--force` (gates in `egx_gates.py`; tests: `tests/test_egx.py`).
 3. ✔ Report v3 (`egx_page.py`: dark, Apple Stocks / Wallet + TradingView-style SVG charts, news per pick, static so the PDF matches) + memory (`egx_memory.py`: `history.jsonl`, `news.jsonl`, `runs.jsonl`; `recall` / `news` / `runs` / `outcome` / `open`) + PDF (headless Chrome) + Drive plan (`drive-record`). Drive tested live 2026-11-10: create, and replace = upload new + trash old (the connector's update_file cannot change content).
-4. Skill 1 rewrite.
-5. `themes.md` (the user corrects the sector mapping).
-6. Skill 2 rewrite.
-7. Tests, a sample run, one live check on ThndrX.
+4. ✔ Skill 1 rewrite (`skills/egx-check/SKILL.md`: memory first, 7 gates for swing and T0, account commands, report + Drive).
+5. ✔ `skills/egx-scan/references/themes.md` drafted (18 themes): **the user still has to correct the sector-to-ticker mapping**.
+6. ✔ Skill 2 rewrite (`skills/egx-scan/SKILL.md`: one Scan, three lists, `egx.py verdict` ranks the top 3 per list, T0 reuses the run amount).
+7. ✔ Tests (16 Python + chart), docs, README images, installer asks for the Drive folder. **Still to do with the user: one live check on ThndrX** (boxes, event lines, MAs, verify, 1D/5-min switch, title fallback, screenshot timing).

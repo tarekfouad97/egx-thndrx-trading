@@ -5,6 +5,7 @@
   "reports_dir": "~/EGX-Reports",
   "reports_repo": "",
   "trade_log_sheet_id": "",
+  "drive_folder_id": "",
   "risk_pct": 1.0,
   "max_stock_pct": 30.0,
   "max_sector_pct": 50.0,
@@ -12,11 +13,11 @@
   "half_deploy_in_weak_market": true,
   "fees": {
     "per_order_egp": 2.0,
-    "brokerage_custody_pct": 0.100,
-    "egx_pct": 0.010,
-    "mcdr_pct": 0.010,
+    "brokerage_custody_pct": 0.1,
+    "egx_pct": 0.01,
+    "mcdr_pct": 0.01,
     "risk_fund_pct": 0.005,
-    "stamp_pct": 0.050,
+    "stamp_pct": 0.05,
     "fra_pct": 0.003,
     "fra_min_egp": 1.0,
     "fra_max_egp": 250.0

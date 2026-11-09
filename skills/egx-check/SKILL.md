@@ -1,87 +1,114 @@
 ---
 name: egx-check
-description: "EGX trading helper on ThndrX in the user's Chrome: \"check TICKER\" / \"افحص\" (scripted chart analysis, drawings, news, verdict, order steps), \"market\", \"my positions\" / \"راجع مراكزي\" (hold / sell / add), trade logging (\"I bought / I sold\"), \"monthly\" results, and \"what did you say about TICKER\" (report history). Every run saves a ThndrX-style HTML report with evidence."
+description: "EGX trading helper on ThndrX in the user's Chrome. \"check TICKER\" / \"افحص\" (swing check: chart analysis, drawings, news, verdict, order steps), \"check TICKER T0\" (same-session check on 5-minute bars), \"market\", \"my positions\" / \"راجع مراكزي\" (hold / sell / add), trade logging (\"اشتريت / بعت\"), \"monthly\" results, and \"what did you say about TICKER\" / \"قلت ايه عن\" (memory). Every check passes 7 proven gates and saves a report (HTML + PDF) locally and to Google Drive."
 ---
 
 # EGX Check on ThndrX
 
-Commands: **check TICKER** · **market** · **my positions** · **log** ("اشتريت JUFO 350 بـ 22.90", "بعت EGAL") · **monthly** · **history** ("قلت ايه عن HRHO", "last reports"). Multi-stock scans (**Scan**, **Scan Max**, **Scan Spec**, **Scan T0**) are the separate **egx-scan** skill, which reuses everything here.
+Commands: **check TICKER** · **check TICKER T0** · **market** · **my positions** · **log** ("اشتريت JUFO 350 بـ 22.90", "بعت EGAL") · **monthly** · **memory** ("قلت ايه عن HRHO", "last runs"). Multi-stock scans are the **egx-scan** skill, which runs this skill's check on every stock it picks.
 
-Scripts live in this skill's `scripts/` folder (call it `$S`; it is the base directory this skill was loaded from + `/scripts`). They do the analysis and the paperwork so Claude does not spend tokens deriving levels by hand:
-- `egx_chart.js` (in the ThndrX page) - opens tickers, computes every chart block, draws the lines, reads cash / order book / financials / holdings. Rules: `references/analysis-rules.md`.
-- `egx.py` (Python 3, standard library) - fees, sizing, the HTML report, `index.csv`, report search. Run-file format: `references/run-schema.md`.
-- UI facts and the order-ticket steps: `references/thndrx-ui.md`.
+`$S` = this skill's `scripts/` folder (the base directory this skill was loaded from + `/scripts`):
+- `egx_chart.js` (runs in the ThndrX page): opens tickers, analyses, draws, verifies the drawings, reads panels. Rules: `references/analysis-rules.md`.
+- `egx.py` (Python 3.9+, standard library): `verdict`, `check`, `allocate`, `report`, `fees`, memory (`recall`, `news`, `runs`, `outcome`, `open`), `drive-record`. Run-file format: `references/run-schema.md`.
+- News whitelist and query templates: `references/news-sources.md`. UI facts and order-ticket steps: `references/thndrx-ui.md`.
 
 ## Hard rules (never break)
 1. **Never trade.** Never click Buy, Sell, شراء, بيع, confirm, modify or cancel; never type in the order ticket; never touch the open-orders list. The user places every order.
-2. **Read-only on the account**, except chart drawings (only lines labelled `EGX·`, which the script clears and redraws). Say once per session that drawings are saved to the ThndrX chart layout.
+2. **Read-only on the account**, except chart drawings labelled `EGX·` (the script clears and redraws only those) and the MA50 / MA200 indicators. Say once per session that drawings stay in the ThndrX chart layout.
 3. **No login work.** On the 2FA screen ask the user to approve it in the Thndr app. Never enter passwords or codes.
 4. **No private API calls.** Only what the page shows and the chart's own `exportData()`. Never call prod.thndr.app endpoints.
-5. **Evidence for everything.** Levels come from the script with their bar dates; news has source, link and date. Unknown is written "unknown", never guessed.
-6. **Chart + analysis + news are mandatory for every verdict** (✅, ⏳ or ❌). If one fails, or anything important cannot be read (chart not loading, 2FA not approved, empty export, missing order book), say exactly what is missing and make the verdict ⏳; never a confident call on partial data.
-7. **Education, not advice.** End with: analysis, not investment advice; the decision is the user's.
+5. **Proof, not words.** A step is done only when its receipt says so (the page script or `egx.py` writes receipts; you never type or edit one). Never write a verdict by hand: `egx.py verdict` computes it. You may only downgrade it, with `override` and a reason. Never use or ask for a `--force`; there is none.
+6. **Evidence for every claim.** Levels come from the script with their bar dates. News comes only from the whitelist in `references/news-sources.md`, opened and dated from the page. Unknown is written "unknown", never guessed.
+7. **Any gate that fails makes the stock ⏳**, and the answer names the gate. Never present a partial check as a full one.
+8. **Education, not advice.** End every answer with: تحليل تعليمي مش نصيحة استثمارية؛ القرار والأوامر ليك.
 
 ## 0. Setup (each session, silent)
-- Read `config.json` in this skill folder (`python3 $S/egx.py config`). If the trade-log sheet id is set and the Google Sheets connector is on, read its **Settings** tab (risk %, equity, fees, fixed costs); Settings wins over config.
-- Load the Claude in Chrome tools in one ToolSearch call (tabs_context_mcp, tabs_create_mcp, navigate, computer, javascript_tool, find, get_page_text).
-- New tab -> https://x.thndr.app/workspaces/default/trade, wait 3 s, then load the script:
-  1. `javascript_tool`: `typeof EGX!=='undefined'?EGX.version:(localStorage.getItem('EGX_JS')?((0,eval)(localStorage.getItem('EGX_JS')),EGX.version):'missing')`
-  2. If the answer is not the version in the first lines of `$S/egx_chart.js`, read `$S/egx_chart.loader.js` and run its whole text once with `javascript_tool` (it runs and caches itself; later sessions only need step 1).
-- `await EGX.market()` once per session (EGX30 regime + relative-strength base). On the market page, `EGX.marketPage()` adds breadth, sectors and USD/EGP.
-- **When setup fails** (stop and tell the user, never work around it):
-  - Chrome extension not connected / no tabs: ask the user to open Chrome with Claude in Chrome connected; nothing else runs without it.
-  - Login or 2FA screen: hard rule 3; wait for "done", then reload the trade page.
-  - `EGX.version` still wrong after the loader, or `EGX.market()` returns no regime: say the page script failed and stop (no hand analysis instead).
-  - Market closed (header "السوق مغلق"): run normally on the last close and say so; the plan is for the next session (`meta.trading_day`).
-  - Sheets connector off or no sheet id: use config values and say "Settings not read"; log rows are given to paste (§4).
+1. `python3 $S/egx.py config` (config.json here, then `~/.egx-thndrx/config.json`). If `trade_log_sheet_id` is set and the Google Sheets connector is on, read the **Settings** tab (risk %, equity, fees, fixed costs); Settings wins over config.
+2. Load the Chrome tools in one ToolSearch call: tabs_context_mcp, tabs_create_mcp, navigate, computer, javascript_tool, find, get_page_text.
+3. New tab -> https://x.thndr.app/workspaces/default/trade, wait 3 s, then load the page script:
+   - `javascript_tool`: `typeof EGX!=='undefined'?EGX.version:(localStorage.getItem('EGX_JS')?((0,eval)(localStorage.getItem('EGX_JS')),EGX.version):'missing')`
+   - If it is not the `VERSION` at the top of `$S/egx_chart.js` (now 3.0.0), read `$S/egx_chart.loader.js` and run its whole text once with `javascript_tool`.
+4. `await EGX.market()` once per session (EGX30 regime, today's change, relative-strength base).
+5. **Stop and tell the user** (never work around it) when: Chrome is not connected; the login / 2FA screen shows (rule 3); `EGX.version` is still wrong after the loader; `EGX.market()` returns no regime. Market closed ("السوق مغلق") is fine for swing checks: say the plan is for the next session.
 
-## 1. check TICKER
-1. `await EGX.deep('TICKER')` -> opens it (check `title` / `tk` in the result is the ticker asked for; watchlist search can list other stocks first, e.g. ORAS), runs blocks A-I, draws entry / stop / target / zones / trendline, reads the order book, price band, cash and the financial tab, and stores 120 candles. Read only what you need from the result (`plan`, `zones`, `rs`, `score`, `drop`, `evidence`, `page`, `flags`).
-2. **Chart screenshot (mandatory evidence; `egx.py check` fails without it).** Move the mouse off the chart (`computer` `mouse_move` to the watchlist), then `EGX.chartRect(4)` -> `region` (CSS px) and `viewport`. Take one `computer` `screenshot` to learn its frame width, scale the region by frame width / `viewport[0]`, and capture it with `computer` `zoom` (`region` scaled, `save_to_disk: true`). Keep the saved path and the time (`screenshot`, `shot_at`). Same for EGX30 once per run (`market.screenshot`).
-3. News (mandatory): at least 2 WebSearch queries (English + Arabic: ticker, company name, Arabic name + البورصة). Keep only dated items; fresh = 48 h, older items at most 2 lines of context marked old. No dated item -> `news_checked: true` and say "no fresh news; verdict is technical only". Flag red events (results date, ex-date, suspension, capital increase, regulatory action) and catalysts from the last 30 days (merger / acquisition / tender offer, expansion, contract, license, bonus shares, dividend, buyback, strong results, index inclusion), and whether the price already moved on them (% and ATRs since the date).
-4. **Verdict** (Claude may only downgrade these, never upgrade):
-   - script `drop` set -> ❌ with the drop reason.
-   - ✅ **valid** only if: no drop, `plan.type` is `pullback-at-support` or `breakout-retest`, no red event before the order would expire, no negative fresh news, entry / stop / target inside today's price band (`page.band` = [low, high]; unknown band = say so), and in a **Down** regime both `rs.rs20` and `rs.rs60` > 0. A catalyst never upgrades a verdict.
-   - ❌ **not_valid** if: negative material news (suspension, fraud, big loss) or daily AND weekly trend down with RS20 and RS60 negative.
-   - otherwise ⏳ **wait**, with `wait_for` = exactly what must happen (price reaches entry X; EGX30 leaves Down / RS turns positive; results on DATE pass).
-5. Write the run file (see §6) and build the report. Answer as in §7.
+## 1. Memory first (before any new analysis)
+- `python3 $S/egx.py recall TICKER` (past verdicts, plans, outcomes, news titles; about 120 tokens per record) and `python3 $S/egx.py news TICKER --since <30 days ago>` (news already found: do not search or fetch those again; only look for newer items).
+- Never open old report HTML files to search. `egx.py read FILE --ticker TK` gives the full detail of one record only when recall is not enough.
+- Mention in the answer when the new verdict differs from the last one, and why.
 
-## 2. market
-`EGX.marketPage()` on the market page + `await EGX.market()`; a short answer and a run file with `command: "Market"` (no stocks).
+## 2. check TICKER (swing): the 7 gates, in this order
+Write each step's result into the stock object of `run.json` (in the working directory) as you go.
 
-## 3. my positions (also step 1 of every swing Scan)
+**Gates 1-2: open + analyse.** `await EGX.deep('TICKER')`. It opens the stock, switches the chart to 1D, analyses it (blocks A-I, plan, setup history), reads the page (cash, order book, price band) and the financial tab, keeps 120 candles, and writes the `open` and `analyse` receipts. It does **not** draw. If it returns `ok:false`, or `R.drop` is set, there is no draw (a dropped stock still gets the news gate only if the user asked about it specifically).
+
+**Gate 3: news.** At least 2 WebSearch queries, one Arabic and one English, built from the templates in `references/news-sources.md`. Log every query in `news_queries` (`{query, results}`).
+- Keep only items on the whitelist. Open each kept item with WebFetch and read its date from the page; set `opened: true` (Bloomberg: headline and date readable = `paywalled: true`). Record `source`, `tier`, `date`, `impact` (+ / 0 / -), `material` (suspension, fraud, big loss), `fresh` (48 h), one-line `summary`.
+- Red events (results date, ex-date, suspension, capital increase) are checked on EGX (Tier 1) first: `red_events` with date, source, url. Not found = date "unknown".
+- Catalysts from the last 30 days: merger / acquisition / tender offer, expansion, contract, license, bonus shares, dividend, buyback, strong results, index inclusion. A corporate event needs an EGX disclosure or two Tier-2 sources, else `status: "rumour"`.
+- No dated item = `news: []`, `news_checked: true`; the answer says "مفيش أخبار جديدة، القرار فني بس".
+
+**Gate 4: draw.** `await EGX.draw('TICKER', {events})` with `events` = every dated red event (`{date, kind:'event', label}`) and, for a catalyst, `{date, kind:'catalyst', label}`. It must return `ok:true` with `made == planned`. It draws the support / resistance / broken-support boxes, entry, stop, target, target 2, trendline, the event lines, and adds MA50 / MA200 once.
+
+**Gate 5: verify.** `await EGX.verifyChart('TICKER')` must return `ok:true`. If not: read `problems`, run gate 4 once more, verify again. Still failing: continue; the verdict will be ⏳ with the gate named.
+
+**Gate 6: screenshot (after the verify, within 30 minutes).** Move the mouse off the chart (`computer` `mouse_move` to the watchlist). `EGX.chartRect(4)` -> `region` (CSS px) and `viewport`. One `computer` `screenshot` to learn the frame width, scale the region by frame width / `viewport[0]`, then `computer` `zoom` with that region and `save_to_disk: true`. Put the saved path in `screenshot`. `egx.py` checks the file's own save time is after the verify.
+
+**Export.** `EGX.exportToPage(['TICKER'])`, read it with `get_page_text` between `EGX-EXPORT-BEGIN` and `EGX-EXPORT-END`, then `EGX.clearExport()` (javascript_tool output is cut at about 1.5 KB). Paste it into `run.json` (it carries the receipts). Add `meta` (`command: "Check"`, `trading_day`, `amount: 0` unless the user gave one, `equity`, `cash`, `risk_pct`), `market.egx30` from the export's `index`, and per stock: `sector`, `reasons` (3-5 short lines in Egyptian Arabic, each with its evidence: dates, numbers, sources), `news_queries`, `news`, `red_events`, `screenshot`.
+
+**Gate 7: verdict.** `python3 $S/egx.py verdict run.json`. It prints the checklist, e.g. `COMI ✔ open ✔ analyse ✔ news 2 queries, 3 items ✔ draw 9 marks ✔ verify ✔ screenshot ✔ verdict → ✅ valid`. The rules it applies (for your understanding; never apply them by hand):
+- script drop -> ❌ dropped; any failed gate -> ⏳ naming the gate;
+- ❌ not valid: negative material news, or daily and weekly trend down with RS20 and RS60 negative;
+- ✅ valid only with plan `pullback-at-support` or `breakout-retest`, no red event before the order expires (about a week), no fresh negative news, entry inside today's price band, and in a Down regime RS20 and RS60 both positive;
+- otherwise ⏳ with `wait_for` (price reaches the entry, the event passes, RS turns positive...).
+- To downgrade (e.g. news the rules cannot read): add `"override": {"verdict": "wait"|"not_valid", "reason": "...", "wait_for": "..."}` and run `verdict` again.
+
+Then §5 (report, Drive) and §6 (answer).
+
+## 3. check TICKER T0 (same session)
+T+0 = buy and sell the same stock in the same session. Only stocks on the EGX Most Active / Medium Activity boards (or the SMEs "Tamayuz" list) are eligible, and the boards change: eligibility is unknown until confirmed with a dated EGX list or the user seeing the T0 option in ThndrX (بيع ← طلب بسعر محدد متقدم ← تسوية T0). Set `t0_eligible: true` only then. Longs only.
+- **Clock (Africa/Cairo):** session 10:00-14:30, Sunday-Thursday. Before 10:15, wait and say so. **No new entry after 13:30**; **exit by 14:20** whatever happens. At most 2 T0 trades a day, one at a time. **Daily brake:** if a T0 trade already hit its stop today (Trades tab: Source starts with "Scan T0" or "Check T0", Closed = today, loss), give analysis only.
+- **Gates 1-2:** `await EGX.market()` (today's EGX30 change), then `await EGX.intraday('TICKER')`: daily analysis on 1D, then the chart switches to 5 minutes; VWAP, opening range, ATR5, RSI5, relative volume, the setup and its plan, the `t0` receipts. `drop` set -> stop here.
+- **Gate 3: news** for today (2 queries, Arabic + English, as §2): results, disclosures, suspensions today.
+- **Gates 4-6:** `await EGX.drawT0('TICKER')`, `await EGX.verifyChart('TICKER', {t0:true})`, screenshot as §2 into `t0.screenshot`, then `await EGX.daily()`.
+- **Export + verdict:** as §2 with the stock's `"mode": "t0"` and `t0_eligible`. `egx.py verdict` also checks: the 5-minute read was between 10:15 and 13:30 Cairo on a Sunday-Thursday, eligibility, EGX30 down today -> the stock above its VWAP and stronger than EGX30, net R:R >= 1.5 after fees, a move to target of at least 3x the round-trip fees, entry within 0.5 ATR5 of the price (else ⏳ with the trigger).
+- A plan older than 15 minutes is stale: run `EGX.intraday` again before answering.
+- Order steps: buy as a limit order valid today; exit the same day with بيع ← طلب بسعر محدد متقدم ← تسوية T0 ← price ← quantity. If ThndrX offers no stop order on T0 shares, say so and tell the user to set price alerts at the stop and the target and exit by hand; never pretend a stop exists.
+
+## 4. market · my positions · log · monthly · memory
+**market:** `EGX.marketPage()` on https://x.thndr.app/workspaces/default/market + `await EGX.market()`; a run file with `command: "Market"`, no stocks; short answer.
+
+**my positions** (also the first step of every swing scan):
 1. Click the bottom tab **الاستثمارات الحالية**, then `EGX.holdings()`. Funds (BWA, BMM, gold, money-market) are `is_fund: true` and not analysed.
-2. For each stock: `await EGX.deep(tk)`, screenshot, news check (as §1.3). Read the open orders tab **الأوامر** (read only) for an existing stop or take-profit.
-3. Action per stock (first that applies), each with evidence:
-   - **exit / sell**: close below the user's stop or below the support zone low - 0.5 ATR, a broken support (`zones.brokenSupportNowResistance`) on above-average volume, or negative material news.
-   - **tighten**: price at least 1.5 x (avgPrice - stop) above avgPrice, or within 0.5 ATR of the target -> new stop = last swing low - 0.5 ATR (or breakeven).
-   - **add**: the script plan passes all ✅ rules, R:R >= 2 and the position stays under the caps; give `plan` so `egx.py allocate` sizes the add.
-   - **hold**: anything else. No stop order seen -> suggest one (support low - 0.5 ATR) with the sell-stop ticket steps.
-4. Flag pending orders (قيد المعالجة) older than 2 days.
+2. Each stock: `recall` it, then gates 1-6 exactly as §2 (deep, news, draw, verify, screenshot). Read the open orders tab **الأوامر** (read only) for an existing stop or take-profit.
+3. Action (first that applies), each with evidence:
+   - **exit / sell:** close below the user's stop or below the support low - 0.5 ATR; a broken support (`zones.brokenSupportNowResistance`) on above-average volume; negative material news.
+   - **tighten:** price at least 1.5 x (avgPrice - stop) above avgPrice, or within 0.5 ATR of the target -> new stop = last swing low - 0.5 ATR (or breakeven).
+   - **add:** the stock's own `egx.py verdict` would be ✅, R:R >= 2, and the position stays under the caps; give `plan` so `egx.py allocate` sizes the add.
+   - **hold:** anything else. No stop order seen -> suggest one (support low - 0.5 ATR) with the sell-stop ticket steps.
+4. Put them in `run.json` `holdings` with `action`, `reasons`, `news`, `screenshot`. Flag pending orders (قيد المعالجة) older than 2 days.
 
-## 4. log / monthly (trade log sheet, only if `trade_log_sheet_id` is set)
-Google Sheet tabs: Trades, Monthly, Recommendations, Settings. Use `get_values` / `update_values`; find the first empty row by reading column A of the tab first, never append blindly; never write formula columns (Trades M, Q-W; Recommendations H). If the connector is off, give the row to paste.
-- **After every verdict**: append to Recommendations: Date, Command, Ticker, Verdict (Valid / Wait / Not valid), Entry, Stop, Target, (H empty), EGX30 regime, Taken? = No, Outcome = Open, Outcome date, Notes (key reason + report file name).
-- **"I bought"**: append to Trades (next T###, date, ticker, sector, source, AI verdict and plan from Recommendations, shares, price, buy fees from the Thndr e-invoice email "فاتورتك الإلكترونية من ثاندر" if Gmail is connected, else `egx.py fees VALUE` and "fees estimated"); set Taken? = Yes.
-- **"I sold"**: fill Closed, Sell price, Sell fees, Exit reason; update the Recommendation's Outcome; report Net P/L, Return %, R multiple from the sheet.
-- **Outcome tracking** (any command): Recommendations still Open and older than 1 day -> get the stock's daily bars (`EGX.get(tk).candles` if it was deep-checked this session, else `await EGX.open(tk)` then `await EGX.candlesNow(120)`; rows are `[date, o, h, l, c]`) and compare the bars after that date with entry / stop / target (entry first, then whichever of stop / target is hit first; both in one bar = Stop hit) -> Target hit / Stop hit, or Expired after 15 trading days without entry. Scan Spec rows: also **Time exit** 10 trading days after entry. Scan T0 rows: egx-scan B5. At most 10 rows per run, oldest first; say how many are left.
-- **monthly**: read `Monthly!A1:L16` and `N2:O7`; report this month, the running average, win rate, Recommendations hit rate, and whether trading covers its fixed costs.
+**log / monthly** (Google Sheet, only if `trade_log_sheet_id` is set; tabs Trades, Monthly, Recommendations, Settings). Read column A first to find the first empty row; never write formula columns (Trades M, Q-W; Recommendations H). Connector off -> give the row to paste.
+- After every verdict: one Recommendations row: Date, Command, Ticker, Verdict (Valid / Wait / Not valid), Entry, Stop, Target, (H empty), EGX30 regime, Taken? = No, Outcome = Open, Outcome date, Notes (key reason + report name).
+- "I bought": Trades row (next T###, date, ticker, sector, source = the command, AI verdict and plan from Recommendations, shares, price, buy fees from the Thndr e-invoice email "فاتورتك الإلكترونية من ثاندر" if Gmail is connected, else `egx.py fees VALUE` and "fees estimated"); Taken? = Yes.
+- "I sold": Closed, sell price, sell fees, exit reason (Target / Stop / Time / Manual); update the Recommendation's Outcome; report net P/L, return %, R multiple from the sheet.
+- **Outcome tracking** (start of any command): `python3 $S/egx.py open` lists calls still open. For each (at most 10, oldest first): bars after the call (`EGX.get(tk).candles` if deep-checked this session, else `await EGX.open(tk)` then `await EGX.candlesNow(120)`; rows `[date, o, h, l, c]`). Entry touched first, then whichever of stop / target comes first (both in one bar = stop). Results: target, stop, expired (15 trading days without entry); T0 calls use that day's 5-minute bars, nothing by 14:20 = time. Record each with `python3 $S/egx.py outcome RUN TICKER RESULT DATE` and in the Sheet.
+- **monthly:** `Monthly!A1:L16` and `N2:O7`: this month, running average, win rate, Recommendations hit rate, whether trading covers its fixed costs.
 
-## 5. history ("what did you say about X", "show my last reports")
-Never open report files to search. `python3 $S/egx.py search --ticker X` (or `--command`, `--since`) reads `index.csv`; `egx.py history X` lists every past verdict and plan; `egx.py read FILE --ticker X` prints only that stock's saved data. Reports live in the reports folder (§6).
+**memory** ("what did you say about X", "last runs"): `egx.py recall X [--last N]`, `egx.py news X`, `egx.py runs [--command Scan] [--since DATE]`. Answer from these; never open report HTML.
 
-## 6. Run file, report and where it is saved
-- Build the run file in the working directory: `EGX.exportToPage(['TK',...])` puts the JSON in a page overlay (javascript_tool output is cut at about 1.5 KB); read it with `get_page_text` between `EGX-EXPORT-BEGIN` and `EGX-EXPORT-END`, then run `EGX.clearExport()`. The JSON holds (full detail for the listed tickers, summary rows for the rest); paste it into `run.json`, add `meta`, `market`, `holdings`, `catalysts` and per stock `verdict`, `reasons`, `wait_for`, `news`, `red_events`, `screenshot`, `sector`. Format: `references/run-schema.md`.
-- `python3 $S/egx.py check run.json`, fix every line it prints, then `python3 $S/egx.py report run.json --out <reports folder>` (add `--video` to also write a HyperFrames recap project, and `--render` to render it to MP4 when Node and Chrome are present). Check the report: the chart pictures must show the drawn `EGX·` lines.
-- Reports folder, first that works:
-  1. Claude Code / desktop with the folder reachable: `reports_dir` from config (default `~/EGX-Reports`).
-  2. Cloud session with the user's computer linked: stage the folder's `index.csv` (if any) into a local folder, run `report --out` there, then write the HTML and `index.csv` back with the device bridge.
-  3. `reports_repo` set in config (a private GitHub repo): clone / pull it, run `report --out` into it, commit and push.
-  4. Otherwise build in the working directory and say it was not saved to the user's folder.
-- Always send the HTML with SendUserFile (it opens on the phone too). If that tool is not available, give the full path of the file (and the GitHub link when `reports_repo` was used).
+## 5. Report, PDF and Drive
+1. `python3 $S/egx.py check run.json`: fix every line it prints (re-run `verdict` after changing data). `allocate` runs inside `report`; run `python3 $S/egx.py allocate run.json` first only to show the sizing.
+2. `python3 $S/egx.py report run.json --out <reports folder>` (folder: `reports_dir` from config, default `~/EGX-Reports`; a cloud session without the user's computer: the working directory, and say so). It writes the HTML, the PDF (needs Chrome), `shots/`, `index.csv` and the memory files, and prints a `drive` plan.
+3. **Drive** (when the plan is printed and the Google Drive connector is on), for each file in `drive.files`:
+   - `create`: `create_file(parentId = drive.folder_id, title = name, base64Content = file_ref, contentMimeType = mime, disableConversionToGoogleType = true)`;
+   - `replace`: the same `create_file`, then `trash_file(old_file_id)` (Drive's `update_file` cannot change content);
+   - `skip`: nothing.
+   - After each create, `python3 $S/egx.py drive-record NAME NEW_FILE_ID`. Say the report is in Drive only after the connector returned the file id; connector off = "saved on this computer only".
+4. Send the PDF (and the HTML) with SendUserFile when that tool exists; otherwise give the full paths and the Drive link.
 
-## 7. Answer (the user's language; Egyptian Arabic by default, phone-sized)
-- **القرار** ✅ / ⏳ / ❌ and 3-5 reasons, each with its evidence (dates, numbers, sources).
-- **Plan**: entry, stop, target (and target 2), R:R, whether the entry is likely to fill soon (`plan.fillSoon`; more than 2 ATR away = limit order unlikely to fill this week), shares and EGP value from `egx.py allocate` (risk % from Settings), fees and the monthly costs to cover (`allocation.fixed_monthly`, `break_even_monthly_pct`). Say plainly when the hurdle is unrealistic for the capital.
-- **Order steps** for ✅ (and ⏳ the user may place as a limit order): the ticket steps from `references/thndrx-ui.md` with the real numbers. If `page.cash` is below the order value, say the cash must be deposited or redeemed first. Settlement is T+2: the stop and target sell orders can usually be placed only from T+2, so say to set price alerts until then.
-- What cancels the idea; the report file; the closing line from rule 7.
+## 6. Answer (Egyptian Arabic, phone-sized, numbers and tickers in Latin digits)
+- **القرار** ✅ / ⏳ / ❌ and the checklist line from `egx.py verdict`, exactly as printed.
+- 3-5 reasons with their evidence (dates, numbers, sources); what changed since the last call (memory).
+- **الخطة**: entry, stop, target (and target 2), R:R, whether the entry is likely to fill soon (`plan.fillSoon`; over 2 ATR away = unlikely this week), shares and EGP from `egx.py allocate`, fees, the monthly costs to cover; say plainly when the hurdle is unrealistic for the capital.
+- **خطوات ThndrX** for ✅ (and ⏳ the user may place as a limit order): the ticket steps from `references/thndrx-ui.md` with the real numbers. If `page.cash` is below the order value, say the cash must be deposited or redeemed first. Settlement is T+2: stop and target sell orders usually only from T+2, so set price alerts until then.
+- What cancels the idea; the report name and where it is saved; the closing line (rule 8).

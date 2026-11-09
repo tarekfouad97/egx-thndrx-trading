@@ -248,10 +248,12 @@ def build_html(run: dict, cfg: dict, fname: str, version: str, memory_counts: di
     o.append(f'<header class="hdr"><span class="eyebrow n">For {esc(nice_date(meta.get("trading_day")))} · built {esc(nice_dt(meta.get("created")))}</span>'
              f'<h1>{esc(cmd)}</h1></header>')
     if eg:
-        ch = eg.get("chgToday") if eg.get("chgToday") is not None else eg.get("ch20")
-        lab = "today" if eg.get("chgToday") is not None else "20d"
+        sp = [x for x in (eg.get("spark") or []) if x is not None][-21:]
+        # the chip and the line always describe the same 20 sessions
+        ch = round((sp[-1] / sp[0] - 1) * 100, 2) if len(sp) >= 2 and sp[0] else eg.get("ch20")
+        lab = "20d"
         o.append(f'<div class="row"><div><div class="sym">EGX30</div><div class="sub">{esc(eg.get("regime") or "unknown")}</div></div>'
-                 f'{spark((eg.get("spark") or [])[-21:] if lab == "20d" else eg.get("spark"))}<div class="px"><b class="n">{esc(money(eg.get("last")))}</b>'
+                 f'{spark(sp)}<div class="px"><b class="n">{esc(money(eg.get("last")))}</b>'
                  f'<span class="chip {"dn" if (ch or 0) < 0 else "up"} n">{esc(signed(ch))} <small>{lab}</small></span></div></div>')
     # summary
     orders = [r for r in al.get("rows") or [] if r.get("shares")]

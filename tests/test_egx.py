@@ -59,6 +59,14 @@ class EgxTest(unittest.TestCase):
         self.assertEqual(v, {"DEMO1": "valid", "DEMO2": "wait", "DEMO3": "dropped", "DEMO4": "dropped"})
         self.assertTrue(all(g["ok"] for g in self.stocks()["DEMO1"]["gates"]))
 
+    def test_rank_per_category(self):
+        def cat(d):
+            d["stocks"][0]["category"] = "top30"; d["stocks"][1]["category"] = "top30"
+        self.edit(cat); out = run("verdict", str(self.run_file)).stdout
+        st = self.stocks()
+        self.assertEqual((st["DEMO1"]["rank"], st["DEMO2"]["rank"]), (1, 2))  # valid before wait
+        self.assertIn("top30: #1 DEMO1, #2 DEMO2", out)
+
     def test_hand_verdict_rejected(self):
         self.edit(lambda d: d["stocks"][2].update(verdict="valid"))  # DEMO3 R:R < 2
         self.assertNotEqual(run("check", str(self.run_file)).returncode, 0)

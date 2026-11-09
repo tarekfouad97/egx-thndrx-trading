@@ -8,7 +8,7 @@ See `examples/sample-run.json` in the repo for a complete example.
 ```jsonc
 {
   "meta": {
-    "command": "Scan",               // Check | Market | Positions | Scan | Scan Max | Scan Spec | Scan Max Spec | Scan T0 | Scan T0 Max
+    "command": "Scan",               // Check | Check T0 | Market | Positions | Scan
     "created": "2026-11-08T21:30",   // local time to the minute (egx.py fills it if missing)
     "trading_day": "2026-11-09",
     "amount": 15287,                 // money to invest now (0 for Check / Positions)
@@ -42,7 +42,6 @@ See `examples/sample-run.json` in the repo for a complete example.
       "screenshot": "/path/to/chart.jpg",   // REQUIRED: cropped ThndrX chart with the EGX· lines, saved with zoom + save_to_disk; embedded in the report
       "shot_at": "2026-11-09 00:05",        // when the screenshot was taken
       "spark": [ /* last 30 closes, from the export */ ],
-      "votes": { "trend": { "verdict": "Valid", "confidence": 4, "facts": [] } }   // Scan Max: per-lens "score" 1-10 replaces "verdict"
     }
   ],
   "holdings": [

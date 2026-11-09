@@ -180,11 +180,18 @@ def allocate(run: dict, cfg: dict) -> dict:
         if h.get("action") == "add" and (h.get("plan") or {}).get("entry"):
             picks.append({"tk": h["tk"], "sector": h.get("sector"), "verdict": "add", "plan": h["plan"], "score": h.get("score") or {}})
 
+    # T0 picks are sold by 14:20, so they reuse the run amount (one T0 trade at a time) and never use up swing money
+    picks = [s for s in picks if s.get("mode") != "t0"] + [s for s in picks if s.get("mode") == "t0"]
+    n_swing = len([s for s in picks if s.get("mode") != "t0"])
     rows, remaining = [], cap_total
     for i, s in enumerate(picks):
         p, tk = plan_of(s) or s["plan"], s["tk"]
+        is_t0 = s.get("mode") == "t0"
         entry, stop, target = float(p["entry"]), float(p["stop"]), p.get("target")
-        share_budget = remaining / max(1, len(picks) - i) if amount else float("inf")  # Check / Positions: size by risk and caps only
+        if is_t0:
+            share_budget = amount if amount else float("inf")
+        else:
+            share_budget = remaining / max(1, n_swing - i) if amount else float("inf")  # Check / Positions: size by risk and caps only
         by_risk = math.floor(risk_budget / (entry - stop))
         by_money = math.floor(share_budget / (entry * 1.002)) if share_budget != float("inf") else 10**9
         by_stock = math.floor(max(0.0, max_stock - held_value.get(tk, 0)) / entry)
@@ -198,7 +205,8 @@ def allocate(run: dict, cfg: dict) -> dict:
             ar = (meta.get("language") or cfg.get("language") or "ar").startswith("ar")
             note, shares, value = (f"أقل من الحد الأدنى للأمر {cfg['min_order_egp']:,} جنيه" if ar else f"below minimum order {cfg['min_order_egp']:,} EGP"), 0, 0.0
         buy_fee = fees_side(value, cfg) if shares else 0.0
-        row = {"tk": tk, "verdict": s.get("verdict"), "order": "buy now" if s.get("verdict") in ("valid", "add") and (p.get("type") or "").endswith("at-support") else "limit",
+        order = "T0 limit, exit by 14:20" if is_t0 else "buy now" if s.get("verdict") in ("valid", "add") and (p.get("type") or "").endswith("at-support") else "limit"
+        row = {"tk": tk, "verdict": s.get("verdict"), "order": order, "t0": is_t0 or None,
                "shares": shares, "value": value, "entry": entry, "stop": stop, "target": target, "rr": p.get("rr"),
                "risk": round(shares * (entry - stop), 2), "limited_by": limit, "note": note, "sector": sec,
                "fees_buy": buy_fee}
@@ -207,12 +215,13 @@ def allocate(run: dict, cfg: dict) -> dict:
             sell_s = shares * stop
             row["gain_if_target"] = round(sell_t - value - buy_fee - fees_side(sell_t, cfg), 2) if target else None
             row["loss_if_stop"] = round(value - sell_s + buy_fee + fees_side(sell_s, cfg), 2)
-            remaining -= value + buy_fee
-            held_value[tk] = held_value.get(tk, 0) + value
-            sector_value[sec] = sector_value.get(sec, 0) + value
+            if not is_t0:
+                remaining -= value + buy_fee
+                held_value[tk] = held_value.get(tk, 0) + value
+                sector_value[sec] = sector_value.get(sec, 0) + value
         rows.append(row)
 
-    deployed = round(sum(r["value"] + r["fees_buy"] for r in rows), 2)
+    deployed = round(sum(r["value"] + r["fees_buy"] for r in rows if not r.get("t0")), 2)
     usd = (run.get("market") or {}).get("usd_egp") or meta.get("usd_egp")
     fixed = fixed_monthly(cfg, usd)
     cash = meta.get("cash")
@@ -258,7 +267,39 @@ def verdicts(run: dict, cfg: dict) -> tuple[list[str], list[str]]:
         else:
             s.pop("wait_for", None)
         lines.append(G.checklist_line(s.get("tk", "?"), res))
+    ranked = rank_categories(run, cfg)
+    if ranked:
+        lines.append("ranking: " + " | ".join(f"{c}: " + ", ".join(f"#{i} {tk}" for i, tk in enumerate(v, 1)) for c, v in ranked.items()))
     return lines, errs
+
+
+def rank_score(s: dict, run: dict, cfg: dict) -> float:
+    """net R:R after fees (on the run amount, or EGP 10,000) x chart score / 10"""
+    p = ((s.get("t0") or {}).get("plan") if s.get("mode") == "t0" else s.get("plan")) or {}
+    e, st, tg = p.get("entry"), p.get("stop"), p.get("target")
+    if not (e and st and tg) or e <= st:
+        return 0.0
+    q = max(1, math.floor(float((run.get("meta") or {}).get("amount") or 10000) / e))
+    fb = fees_side(e * q, cfg)
+    net = ((tg - e) * q - fb - fees_side(tg * q, cfg)) / ((e - st) * q + fb + fees_side(st * q, cfg))
+    return round(net * ((s.get("score") or {}).get("total") or 0) / 10, 3)
+
+
+def rank_categories(run: dict, cfg: dict) -> dict:
+    """egx-scan: rank valid and wait picks inside each category (valid first, then rank score, ties: unpriced hot reason)"""
+    cats = {}
+    for s in run.get("stocks") or []:
+        s.pop("rank", None)
+        if s.get("category") and s.get("verdict") in ("valid", "wait"):
+            s["rank_score"] = rank_score(s, run, cfg)
+            cats.setdefault(s["category"], []).append(s)
+    out = {}
+    for c, items in cats.items():
+        items.sort(key=lambda s: (s["verdict"] != "valid", -s["rank_score"], bool((s.get("hot") or {}).get("priced_in", True))))
+        for i, s in enumerate(items, 1):
+            s["rank"] = i
+        out[c] = [s["tk"] for s in items[:3]]
+    return out
 
 
 def check(run: dict, cfg: dict | None = None) -> list[str]:
@@ -291,7 +332,7 @@ def check(run: dict, cfg: dict | None = None) -> list[str]:
     return errs
 
 
-# ----------------------------------------------------------------- report (HTML lives in egx_report.py)
+# ----------------------------------------------------------------- report (page: egx_page.py, recap video: egx_report.py)
 import egx_report  # noqa: E402  (video recap only)
 import egx_page  # noqa: E402
 import egx_memory  # noqa: E402

@@ -83,6 +83,8 @@ def step_config(yes: bool) -> dict:
     cfg["risk_pct"] = float(ask("Risk per trade % (1 = normal, 2 = high)", str(cfg.get("risk_pct", 1.0)), yes))
     cfg["trade_log_sheet_id"] = ask("Google Sheet id of your trade log (optional, see docs/SETUP.md)", cfg.get("trade_log_sheet_id", ""), yes)
     cfg["reports_repo"] = ask("Private GitHub repo for reports, e.g. you/egx-reports (optional)", cfg.get("reports_repo", ""), yes)
+    fid = ask("Google Drive folder for reports: paste its link or id (optional)", cfg.get("drive_folder_id", ""), yes)
+    cfg["drive_folder_id"] = fid.rstrip("/").split("/folders/")[-1].split("?")[0] if fid else ""
     cfg["footer"] = ex["footer"]  # credits stay with the author
     cur_p.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     say(f"✓ config written: {cur_p.relative_to(ROOT)}", GREEN)
