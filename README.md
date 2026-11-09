@@ -26,6 +26,9 @@ You place every order yourself. The skills only read and draw.
 | **`my positions`** · `راجع مراكزي` | Every stock you hold gets **hold / tighten stop / sell / add**, with evidence. |
 | **`Loop 30`** · `لف على الـ 30` | Positions review, a market-wide **news & catalyst scan** (mergers, acquisitions, tender offers, expansions, contracts, bonus shares), a scan of the top 30 stocks, deep checks on the best 5, and a split of the amount you want to invest with risk, caps and fees. |
 | **`Loop 30 Max`** | The deepest run: every stock fully checked, extended searches, **five independent analyst passes** per finalist and a verifier. Heavy on usage. |
+| **`Loop 30 Spec`** · `لف على الـ 30 مضاربة` | Loop 30 Max with looser speculation rules: 3 of 5 consensus (risk manager can veto), one-period relative strength in a Down market, entries up to 1.5 ATR above support, R:R 2.0 gross / 1.6 net, a 10-trading-day time stop, and risk set as a % of the amount you give for the run. |
+| **`Loop T0`** · `لف T0` | Intraday (same-session, T+0) scan on T+0-eligible stocks: 5-minute opening-range breakout, VWAP pullback or daily-support bounce, sized from your amount, no entries after 13:30, forced exit by 14:20, max 2 trades a day and a daily loss brake. |
+| **`Loop T0 Max`** · `لف T0 ماكس` | Loop T0 at full depth with five analyst passes and a verifier under a 25-minute time budget, plus a price re-check before answering. Heavy on usage. |
 | **`market`**, **`monthly`**, **`اشتريت … / بعت …`**, **`قلت ايه عن HRHO؟`** | Market regime, monthly results vs your fixed costs, trade logging to Google Sheets, and instant search of past reports. |
 
 Every run saves **one self-contained HTML report** styled like ThndrX:

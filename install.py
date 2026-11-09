@@ -31,7 +31,7 @@ import sys
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parent
-SKILLS = ["egx-thndrx-trade-check", "loop-30", "loop-30-max"]
+SKILLS = ["egx-thndrx-trade-check", "loop-30", "loop-30-max", "loop-30-spec", "loop-t0", "loop-t0-max"]
 CHECK = ROOT / "skills" / "egx-thndrx-trade-check"
 GREEN, RED, DIM, BOLD, END = ("\033[32m", "\033[31m", "\033[2m", "\033[1m", "\033[0m") if sys.stdout.isatty() and os.name != "nt" else ("",) * 5
 
