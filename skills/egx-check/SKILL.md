@@ -1,11 +1,11 @@
 ---
-name: egx-thndrx-trade-check
+name: egx-check
 description: "EGX trading helper on ThndrX in the user's Chrome: \"check TICKER\" / \"افحص\" (scripted chart analysis, drawings, news, verdict, order steps), \"market\", \"my positions\" / \"راجع مراكزي\" (hold / sell / add), trade logging (\"I bought / I sold\"), \"monthly\" results, and \"what did you say about TICKER\" (report history). Every run saves a ThndrX-style HTML report with evidence."
 ---
 
-# EGX trade check on ThndrX
+# EGX Check on ThndrX
 
-Commands: **check TICKER** · **market** · **my positions** · **log** ("اشتريت JUFO 350 بـ 22.90", "بعت EGAL") · **monthly** · **history** ("قلت ايه عن HRHO", "last reports"). **Loop 30** and **Loop 30 Max** are separate skills that reuse everything here.
+Commands: **check TICKER** · **market** · **my positions** · **log** ("اشتريت JUFO 350 بـ 22.90", "بعت EGAL") · **monthly** · **history** ("قلت ايه عن HRHO", "last reports"). Multi-stock scans (**Scan**, **Scan Max**, **Scan Spec**, **Scan T0**) are the separate **egx-scan** skill, which reuses everything here.
 
 Scripts live in this skill's `scripts/` folder (call it `$S`; it is the base directory this skill was loaded from + `/scripts`). They do the analysis and the paperwork so Claude does not spend tokens deriving levels by hand:
 - `egx_chart.js` (in the ThndrX page) - opens tickers, computes every chart block, draws the lines, reads cash / order book / financials / holdings. Rules: `references/analysis-rules.md`.
@@ -43,7 +43,7 @@ Scripts live in this skill's `scripts/` folder (call it `$S`; it is the base dir
 ## 2. market
 `EGX.marketPage()` on the market page + `await EGX.market()`; a short answer and a run file with `command: "Market"` (no stocks).
 
-## 3. my positions (also step 1 of every Loop)
+## 3. my positions (also step 1 of every swing Scan)
 1. Click the bottom tab **الاستثمارات الحالية**, then `EGX.holdings()`. Funds (BWA, BMM, gold, money-market) are `is_fund: true` and not analysed.
 2. For each stock: `await EGX.deep(tk)`, screenshot, news check (as §1.3). Read the open orders tab **الأوامر** (read only) for an existing stop or take-profit.
 3. Action per stock (first that applies), each with evidence:

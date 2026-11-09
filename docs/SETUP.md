@@ -18,7 +18,7 @@ or download the ZIP from GitHub (Code > Download ZIP) and unzip it.
 
 The bootstrapper installs Python 3 if it is missing (Homebrew or python.org on macOS, winget on Windows), offers Node.js (optional), then runs `install.py`, which:
 - asks your name, report language (ar / en), reports folder, risk % per trade, and the optional trade-log sheet and reports repo;
-- writes `skills/egx-thndrx-trade-check/config.json` (never committed);
+- writes `skills/egx-check/config.json` (never committed);
 - creates the reports folder with `index.csv`;
 - builds **`dist/egx-thndrx-trading.plugin`** and **`dist/claude-ai-skills/*.zip`**;
 - copies the skills into `~/.claude/skills` when Claude Code is installed;
@@ -49,8 +49,10 @@ The first time a skill runs it sends a ~20 KB script into the ThndrX tab once an
 | `check COMI` / `افحص COMI` | full scripted analysis, drawings on your ThndrX chart, news, verdict, exact order steps, HTML report |
 | `market` | EGX30 regime, breadth, sectors |
 | `my positions` / `راجع مراكزي` | hold / tighten / sell / add for each stock you hold |
-| `Loop 30` / `لف على الـ 30` | positions + catalysts + 30-stock scan + best 5 + allocation of your amount |
-| `Loop 30 Max` | the deepest version with 5 independent analysts and a verifier (very heavy on usage) |
+| `Scan` | positions + catalysts + 30-stock scan + best 5 + allocation of your amount |
+| `Scan Max` | full technical + fundamental + chart analysis of every stock, 5 analyst scores, a verifier, always the best 3 ranked A/B/C (very heavy on usage) |
+| `Scan Spec` | looser speculation rules, risk as a % of the run amount, 10-day time stop (combine: `Scan Max Spec`) |
+| `Scan T0` / `Scan T0 Max` | same-session (T+0) intraday setups, exit by 14:20 |
 | `اشتريت HRHO 226 بـ 22.04` / `بعت EGAL` | logs the trade in your sheet |
 | `monthly` | this month's results vs your fixed costs |
 | `قلت ايه عن HRHO؟` | finds past reports through `index.csv` |

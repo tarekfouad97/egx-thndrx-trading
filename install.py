@@ -7,7 +7,7 @@ EGX ThndrX Trading - installer (macOS and Windows, also Linux).
 
 What it does:
   1. checks Python (3.9+) and, optionally, Node.js (only needed for the MP4 recap and extra design skills)
-  2. asks a few settings and writes skills/egx-thndrx-trade-check/config.json
+  2. asks a few settings and writes skills/egx-check/config.json
   3. creates your reports folder with an empty index.csv
   4. builds dist/egx-thndrx-trading.plugin  -> drag into Claude (desktop / claude.ai) to install all 3 skills
      and dist/claude-ai-skills/*.zip         -> or upload each skill in Settings > Capabilities > Skills
@@ -31,8 +31,8 @@ import sys
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parent
-SKILLS = ["egx-thndrx-trade-check", "loop-30", "loop-30-max", "loop-30-spec", "loop-t0", "loop-t0-max"]
-CHECK = ROOT / "skills" / "egx-thndrx-trade-check"
+SKILLS = ["egx-check", "egx-scan"]
+CHECK = ROOT / "skills" / "egx-check"
 GREEN, RED, DIM, BOLD, END = ("\033[32m", "\033[31m", "\033[2m", "\033[1m", "\033[0m") if sys.stdout.isatty() and os.name != "nt" else ("",) * 5
 
 
@@ -176,7 +176,7 @@ def main():
  2. Install Claude in Chrome (https://claude.ai/chrome) and sign in to https://x.thndr.app in Chrome.
  3. Optional: import templates/EGX_Trade_Log_template.xlsx into Google Sheets, put its id in config
     (python3 install.py again) and connect Google Sheets in Claude.
- 4. In Claude say: "check COMI", "my positions" or "Loop 30".
+ 4. In Claude say: "check COMI", "my positions" or "Scan".
  Docs: docs/SETUP.md · Phone: docs/PHONE.md
 """)
 

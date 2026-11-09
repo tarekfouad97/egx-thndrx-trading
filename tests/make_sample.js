@@ -2,7 +2,7 @@
 const fs=require('fs');let DATA=[];
 global.window={};global.sessionStorage={getItem(){return null},setItem(){}};
 global.document={querySelectorAll:(q)=>q==='iframe'?[{contentWindow:{tradingViewApi:{activeChart:()=>({exportData:async()=>({schema:[{},{sourceTitle:'Sample Co, EGX'},{},{},{},{plotId:'vol'}],data:DATA}),symbol:()=>'X'})}}}]:[]};
-eval(fs.readFileSync(process.argv[2]||require('path').join(__dirname,'../skills/egx-thndrx-trade-check/scripts/egx_chart.js'),'utf8'));
+eval(fs.readFileSync(process.argv[2]||require('path').join(__dirname,'../skills/egx-check/scripts/egx_chart.js'),'utf8'));
 function series(seed,drift,n=300,p=20){const out=[];let t=1767225600;for(let i=0;i<n;i++){const w=Math.sin(i/(7+seed))*0.018;p=p*(1+drift+w*0.35+Math.sin(i*1.3+seed)*0.005);const o=p*(1+Math.sin(i+seed)*0.004),c=p,h=Math.max(o,c)*1.012,l=Math.min(o,c)*0.988;out.push([t,o,h,l,c,3e6+((i*7919+seed*997)%2e6)]);t+=86400;}return out;}
 (async()=>{
  DATA=series(0,0.0006,300,48000);await window.EGX.analyze('EGX30');

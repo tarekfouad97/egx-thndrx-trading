@@ -1,7 +1,7 @@
 {
   "name": "egx-thndrx-trading",
   "version": "0.2.0",
-  "description": "EGX trading helpers on ThndrX: scripted chart analysis with drawings, news and catalysts, positions review (hold / sell / add), Loop 30, Loop 30 Max and Loop 30 Spec allocation, Loop T0 / T0 Max intraday scans, and ThndrX-style HTML reports with evidence and an index for history search. Read-only on the account; never places orders.",
+  "description": "EGX trading helpers on ThndrX: scripted chart analysis with drawings, news and catalysts, positions review (hold / sell / add), egx-check (check, positions, log) and egx-scan (Scan, Scan Max, Scan Spec, Scan T0), and ThndrX-style HTML reports with evidence and an index for history search. Read-only on the account; never places orders.",
   "author": {
     "name": "Tarek Fouad",
     "email": "tare2fo2ad@gmail.com"

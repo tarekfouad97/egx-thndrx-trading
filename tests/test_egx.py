@@ -3,7 +3,7 @@
 import json, os, pathlib, subprocess, sys, tempfile, unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-EGX = ROOT / "skills" / "egx-thndrx-trade-check" / "scripts" / "egx.py"
+EGX = ROOT / "skills" / "egx-check" / "scripts" / "egx.py"
 SAMPLE = ROOT / "examples" / "sample-run.json"
 
 

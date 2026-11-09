@@ -24,11 +24,10 @@ You place every order yourself. The skills only read and draw.
 |---|---|
 | **`check COMI`** · `افحص COMI` | Scripted chart analysis (trend daily + weekly, zones with touch dates, RSI + divergence, MACD, ATR, Bollinger squeeze, volume, patterns, relative strength vs EGX30), a plan with entry / stop / target, lines drawn on your ThndrX chart, order book, financials, dated news, a ✅ / ⏳ / ❌ verdict and the exact order-ticket steps. |
 | **`my positions`** · `راجع مراكزي` | Every stock you hold gets **hold / tighten stop / sell / add**, with evidence. |
-| **`Loop 30`** · `لف على الـ 30` | Positions review, a market-wide **news & catalyst scan** (mergers, acquisitions, tender offers, expansions, contracts, bonus shares), a scan of the top 30 stocks, deep checks on the best 5, and a split of the amount you want to invest with risk, caps and fees. |
-| **`Loop 30 Max`** | The deepest run: every stock fully checked, extended searches, **five independent analyst passes** per finalist and a verifier. Heavy on usage. |
-| **`Loop 30 Spec`** · `لف على الـ 30 مضاربة` | Loop 30 Max with looser speculation rules: 3 of 5 consensus (risk manager can veto), one-period relative strength in a Down market, entries up to 1.5 ATR above support, R:R 2.0 gross / 1.6 net, a 10-trading-day time stop, and risk set as a % of the amount you give for the run. |
-| **`Loop T0`** · `لف T0` | Intraday (same-session, T+0) scan on T+0-eligible stocks: 5-minute opening-range breakout, VWAP pullback or daily-support bounce, sized from your amount, no entries after 13:30, forced exit by 14:20, max 2 trades a day and a daily loss brake. |
-| **`Loop T0 Max`** · `لف T0 ماكس` | Loop T0 at full depth with five analyst passes and a verifier under a 25-minute time budget, plus a price re-check before answering. Heavy on usage. |
+| **`Scan`** | Positions review, a market-wide **news & catalyst scan** (mergers, acquisitions, tender offers, expansions, contracts, bonus shares), a scan of the top 30 stocks, deep checks on the best 5, and a split of the amount you want to invest with risk, caps and fees. |
+| **`Scan Max`** | Full technical, fundamental and chart analysis of **every** top-30 stock, **five independent analyst scores** on the best 8 and a verifier, then **always the best 3 ranked** by expected gain vs risk with an A/B/C grade. Heavy on usage. |
+| **`Scan Spec`** | Looser speculation rules on top of Scan or Scan Max (`Scan Max Spec`): relaxed grades, entries up to 1.5 ATR above support, R:R 2.0 gross / 1.6 net, a 10-trading-day time stop, and risk as a % of the amount you give for the run. |
+| **`Scan T0`** · **`Scan T0 Max`** | Same-session (T+0) scan on T+0-eligible stocks: 5-minute opening-range breakout, VWAP pullback or daily-support bounce, no entries after 13:30, forced exit at 14:20, max 2 trades a day and a daily loss brake. Max adds five analyst scores, a verifier and a price re-check under a 25-minute budget. |
 | **`market`**, **`monthly`**, **`اشتريت … / بعت …`**, **`قلت ايه عن HRHO؟`** | Market regime, monthly results vs your fixed costs, trade logging to Google Sheets, and instant search of past reports. |
 
 Every run saves **one self-contained HTML report** styled like ThndrX:
@@ -60,7 +59,7 @@ Claude does not eyeball charts or work out levels in its head:
 - **`egx_chart.js`** runs inside the ThndrX tab. It opens tickers through the search box, reads 300 daily bars from the chart's own `exportData()`, computes every indicator and the plan, and draws the lines. It returns **one line per stock** and scans 8 stocks per call (6 stocks in about 9 seconds in testing). It is cached in the tab, so later sessions load it with one line.
 - **`egx.py`** (Python standard library only) does the sizing, caps, Thndr fees, monthly break-even, the HTML report, `index.csv` and report search.
 
-The rules are written down in [`analysis-rules.md`](skills/egx-thndrx-trade-check/references/analysis-rules.md), so every verdict can be explained.
+The rules are written down in [`analysis-rules.md`](skills/egx-check/references/analysis-rules.md), so every verdict can be explained.
 
 ## Safety
 
@@ -75,7 +74,7 @@ The rules are written down in [`analysis-rules.md`](skills/egx-thndrx-trade-chec
 ```
 .claude-plugin/plugin.json          plugin manifest
 skills/
-  egx-thndrx-trade-check/           check, market, positions, log, monthly, history
+  egx-check/                        check, market, positions, log, monthly, history
     SKILL.md
     config.example.json             copied to config.json by the installer (git-ignored)
     scripts/egx_chart.js            in-page analysis + drawing (source)
@@ -83,8 +82,7 @@ skills/
     scripts/build_loader.py
     scripts/egx.py                  fees, allocate, report, index, search, read, history, check
     references/                     analysis rules, run-file schema, ThndrX UI notes
-  loop-30/SKILL.md
-  loop-30-max/SKILL.md
+  egx-scan/SKILL.md                 Scan, Scan Max, Scan Spec, Scan T0 (modes combine)
 templates/EGX_Trade_Log_template.xlsx   blank trade log for Google Sheets
 examples/sample-run.json            synthetic run used by the tests and screenshots
 tests/                              node + python tests
@@ -97,7 +95,7 @@ docs/                               setup, phone, how it works
 ```bash
 node tests/test_chart.js                 # chart script on synthetic series
 python3 tests/test_egx.py                # sizing, report, index, search, read
-python3 skills/egx-thndrx-trade-check/scripts/build_loader.py   # after editing egx_chart.js (bump VERSION)
+python3 skills/egx-check/scripts/build_loader.py   # after editing egx_chart.js (bump VERSION)
 python3 install.py --build-only          # rebuild dist/
 ```
 

@@ -23,10 +23,10 @@
 | Opening old reports to find a ticker | `egx.py search` / `history` read `index.csv`; `egx.py read FILE --ticker X` prints only that stock |
 
 ## Files
-- `skills/egx-thndrx-trade-check/scripts/egx_chart.js` - in-page analysis (source). `egx_chart.loader.js` - minified, self-caching build (`python3 build_loader.py`).
-- `skills/egx-thndrx-trade-check/scripts/egx.py` - fees, allocation, report, index, search, read, history, check.
-- `skills/egx-thndrx-trade-check/references/analysis-rules.md` - every rule the script applies.
-- `skills/egx-thndrx-trade-check/references/run-schema.md` - the run file.
+- `skills/egx-check/scripts/egx_chart.js` - in-page analysis (source). `egx_chart.loader.js` - minified, self-caching build (`python3 build_loader.py`).
+- `skills/egx-check/scripts/egx.py` - fees, allocation, report, index, search, read, history, check.
+- `skills/egx-check/references/analysis-rules.md` - every rule the script applies.
+- `skills/egx-check/references/run-schema.md` - the run file.
 - `examples/sample-run.json` - a complete run built from synthetic data (used by the tests).
 
 ## Reports
@@ -37,8 +37,8 @@
 - `index.csv` columns: file, created, trading_day, command, regime, egx30, amount, deployed, cash_left, tickers, valid, wait, not_valid, holdings, holding_actions, top_pick, catalysts, summary.
 
 ## Changing the rules
-Edit `egx_chart.js`, bump `VERSION`, run `python3 skills/egx-thndrx-trade-check/scripts/build_loader.py`, update `analysis-rules.md`, and run the tests:
+Edit `egx_chart.js`, bump `VERSION`, run `python3 skills/egx-check/scripts/build_loader.py`, update `analysis-rules.md`, and run the tests:
 ```bash
-node tests/test_chart.js skills/egx-thndrx-trade-check/scripts/egx_chart.js
+node tests/test_chart.js skills/egx-check/scripts/egx_chart.js
 python3 tests/test_egx.py
 ```
