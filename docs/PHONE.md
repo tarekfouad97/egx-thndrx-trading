@@ -18,7 +18,7 @@ Set `reports_repo` (a **private** repo such as `you/egx-reports`) in `install.py
 ## Recap video
 Every report starts with an animated recap built with HyperFrames. With Node on the computer, ask for `--video` or run the command the report step prints:
 ```bash
-cd ~/EGX-Reports/video/EGX_Loop30_2026-11-08_21-30 && npx hyperframes render --output ../../EGX_Loop30_2026-11-08_21-30.mp4
+cd ~/EGX-Reports/video/EGX_Scan_2026-11-08_21-30 && npx hyperframes render --output ../../EGX_Scan_2026-11-08_21-30.mp4
 ```
 and send the MP4 to your phone.
 

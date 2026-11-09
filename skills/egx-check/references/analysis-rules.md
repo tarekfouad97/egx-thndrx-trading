@@ -68,3 +68,18 @@ Over the 300 bars: every time the low came within 0.25 ATR of today's support to
 
 ## Market regime (EGX30)
 Up = close above a rising MA50 and above MA200. Down = close below a falling MA50 and below MA200. Anything else = Correction.
+
+## Drawing and verify (gates 4-5, `EGX.draw` / `EGX.verifyChart`)
+- Run only after the news gate, so event dates can be drawn. Chart must show the ticker on 1D.
+- Clears every mark labelled `EGX·` (only those), then draws, each labelled `EGX·TICKER ...`:
+  support box (orange, from the first touch, extended right; zones thinner than 0.2 ATR are padded 0.1 ATR each side), up to 2 resistance boxes (red), the first broken-support box (red, dashed border), entry (blue), stop (red), target (green), target 2 (green dashed), trendline (orange), red-event vertical lines (red dashed) and catalyst lines (purple) from `events`.
+- Adds MA50 and MA200 indicators only if no Moving Average with that length is already on the chart.
+- Every mark's id is stored per ticker. `verifyChart` reads each one back and fails on: wrong ticker or symbol changed, wrong resolution, a mark missing, a price off by more than max(1 tick, 0.1%), an event line not on its date, an `EGX·` mark that is not from this check, MA50/MA200 missing. Its receipt time is the earliest moment a valid screenshot can be taken.
+
+## T0 (`EGX.intraday`, `EGX.drawT0`)
+- Runs the daily analysis on 1D first (daily support / resistance, liquidity), then switches the chart to 5 minutes. Call `EGX.daily()` after the screenshot.
+- Today's session = 5-minute bars on the last bar's Cairo date. Fewer than 6 bars = `drop: "early"` (opening range not complete).
+- VWAP (typical price x volume, cumulative from the open), opening range = first 6 bars (30 min), ATR5(14) and RSI5(14) on 5-minute bars, relative volume = today's volume so far vs the same number of bars in earlier sessions (needs 3 sessions, else unknown), day change vs EGX30 (`EGX.market()` today), share of bars closing above VWAP.
+- Setups, first that fits: **opening-range breakout** (a 5-min close above the range high on volume above the previous 6 bars, price above VWAP and the range high; entry = range high; stop = the tighter of range high - 0.3 ATR5 and VWAP, at least 1 ATR5 below entry) · **VWAP pullback** (above VWAP on >= 70% of bars, last bar low within 0.25 ATR5 of VWAP and closing above it; entry = VWAP; stop = VWAP - 1.25 ATR5) · **daily-support bounce** (last bar low within 0.25 ATR5 of the daily support top, green bar closing above the previous high; entry = last close; stop = support low - 0.25 ATR5, at least 1 ATR5).
+- Target = the nearer of the day's high and the next daily resistance (above the entry); entry + 2R only when neither is above the entry. R:R must still be >= 2. Drops: `limit` (|day change| >= 17%), `thin` (daily average value < EGP 20M), `spread` (> 0.3%), `rr` (< 2), `no-setup`, `early`.
+- Marks (`EGX·T0 TICKER ...`): opening-range box, VWAP, entry, stop, target, nearest daily support and resistance. Exit by 14:20, no new entry after 13:30.

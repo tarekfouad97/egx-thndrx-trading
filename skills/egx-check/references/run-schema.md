@@ -8,7 +8,7 @@ See `examples/sample-run.json` in the repo for a complete example.
 ```jsonc
 {
   "meta": {
-    "command": "Loop 30",            // Check | Market | Positions | Scan | Scan Max | Scan Spec | Scan Max Spec | Scan T0 | Scan T0 Max
+    "command": "Scan",               // Check | Market | Positions | Scan | Scan Max | Scan Spec | Scan Max Spec | Scan T0 | Scan T0 Max
     "created": "2026-11-08T21:30",   // local time to the minute (egx.py fills it if missing)
     "trading_day": "2026-11-09",
     "amount": 15287,                 // money to invest now (0 for Check / Positions)
@@ -54,10 +54,32 @@ See `examples/sample-run.json` in the repo for a complete example.
 }
 ```
 
-Rules enforced by `egx.py check` (the report refuses to build otherwise, unless `--force`):
-- every news item and catalyst has a `url` and a `date`;
-- every deep-checked stock (valid / wait / not_valid) has news (or `news_checked: true`) and a `screenshot` of the drawn chart (the file must exist); `market.screenshot` (EGX30) is optional;
-- `valid` is impossible when the chart script dropped the stock or R:R < 2.
+## v3 fields (strict mode)
+```jsonc
+{ "stocks": [{
+    "receipts": { "open": {}, "analyse": {}, "draw": {}, "verify": {} },   // pasted from the export, never typed
+    "news_queries": [{ "query": "\"COMI\" site:arabfinance.com", "results": 4 }, { "query": "التجاري الدولي البورصة", "results": 3 }],
+    "news": [{ "title": "", "url": "", "source": "Arab Finance", "tier": 2, "date": "YYYY-MM-DD", "opened": true,
+               "paywalled": false, "impact": "+|0|-", "material": false, "summary": "" }],
+    "category": "top30|hot|t0",         // egx-scan: which list it was ranked in (report section + memory)
+    "rank": 1,                          // place inside its category (1-3)
+    "quick": true,                      // quick-scan row only -> verdict "unchecked", never funded
+    "mode": "t0", "t0_eligible": true,  // check TICKER T0; eligibility confirmed with a source or the ThndrX T0 option
+    "t0": { "plan": {}, "receipts": {}, "screenshot": "/path/5min.jpg" },
+    "override": { "verdict": "wait|not_valid", "reason": "", "wait_for": "" }   // Claude may only downgrade
+}],
+  "catalysts": [{ "tk": "", "type": "", "status": "confirmed|rumour", "sources": [{ "url": "", "date": "", "source": "", "tier": 1, "opened": true }] }] }
+```
+`meta.t0_status` (egx-scan) says why the Same-day list is empty, e.g. "Skipped: market closed".
+`verdict`, `verdict_by`, `auto_reasons`, `gates` and `wait_for` are written by `egx.py verdict`; never type them.
+`egx.py report` also writes the memory files (`history.jsonl`, `news.jsonl`, `runs.jsonl`), copies screenshots to `shots/`, makes the PDF and prints the Drive upload plan.
+
+Rules enforced by `egx.py check` (the report refuses to build otherwise; there is no `--force`):
+- every verdict was computed by `egx.py verdict` and still matches the rules; overrides only downgrade, with a reason;
+- every stock that is not dropped / unchecked passes the 7 gates, or it is ⏳ with the failed gate named:
+  open (header shows the ticker) · analyse (page script v3, 60+ bars) · news (2+ searches, one Arabic and one English, every item on the whitelist in `news-sources.md`, opened and dated from the page) · draw (every planned mark made, MA50/MA200 present, every dated red event drawn) · verify (`EGX.verifyChart` ok after the last draw) · screenshot (JPEG/PNG of the chart whose file time is after the verify and within 30 minutes) · verdict;
+- a confirmed corporate catalyst (merger, acquisition, tender offer, capital increase, contract) has an EGX source or two Tier-2 sources; otherwise `status: "rumour"`;
+- `valid` is impossible when the chart script dropped the stock or R:R < 2 (T0: also net R:R < 1.5 or a move under 3x the round-trip fees).
 
 `egx.py allocate` adds `allocation` (shares, values, risk, fees, gain/loss, break-even) and
 never sizes a plan under 2:1. The report embeds the whole run file as JSON, so later

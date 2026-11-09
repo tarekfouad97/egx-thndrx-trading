@@ -8,10 +8,16 @@ no tokens to "think" about them:
   python3 egx.py fees 5000                      # Thndr fees for one order value (per side, round trip)
   python3 egx.py allocate run.json              # position sizing, caps, fees, costs -> writes run.json
   python3 egx.py report run.json [--video]      # HTML report + index.csv (+ HyperFrames recap project)
-  python3 egx.py search --ticker HRHO           # find past reports from index.csv (no file opening)
-  python3 egx.py read REPORT.html [--ticker X]  # print the JSON data embedded in a report
-  python3 egx.py history HRHO                   # every past verdict/plan for one ticker
-  python3 egx.py check run.json                 # validate a run file before building
+  python3 egx.py recall HRHO [--last 5]        # MEMORY: past verdicts, plans, outcomes, news of one stock (cheap)
+  python3 egx.py news HRHO [--since DATE]       # MEMORY: news already found (do not search it again)
+  python3 egx.py runs [--command Scan]          # MEMORY: what each run decided
+  python3 egx.py outcome RUN TK target|stop|expired|time DATE   # record what happened to a call
+  python3 egx.py open                           # calls still waiting for an outcome
+  python3 egx.py drive-record NAME FILE_ID      # remember the Drive id of an uploaded file
+  python3 egx.py search --ticker HRHO           # find past reports from index.csv
+  python3 egx.py read REPORT.html [--ticker X]  # full detail of one report (rarely needed)
+  python3 egx.py verdict run.json               # gates + verdict per stock (the only way a verdict is set)
+  python3 egx.py check run.json                 # strict validation; the report refuses to build otherwise
   python3 egx.py config                         # show the merged configuration
 
 Settings come from config.json next to SKILL.md (copy config.example.json). The run file
@@ -32,7 +38,7 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 SKILL_DIR = HERE.parent
-VERSION = "2.0.4"
+VERSION = "3.0.0"
 
 DEFAULT_CONFIG = {
     "user_name": "",
@@ -58,6 +64,7 @@ DEFAULT_CONFIG = {
         "fra_max_egp": 250.0,
     },
     "fixed_costs": {"thndr_plan_egp": 245.0, "claude_usd": 20.0},
+    "drive_folder_id": "",
     "footer": {
         "author": "Tarek Fouad",
         "email": "tare2fo2ad@gmail.com",
@@ -159,22 +166,23 @@ def allocate(run: dict, cfg: dict) -> dict:
             sector_value[sec] = sector_value.get(sec, 0) + v
 
     picks = []
+    plan_of = lambda s: (((s.get("t0") or {}).get("plan")) if s.get("mode") == "t0" else s.get("plan")) or {}
     for s in run.get("stocks") or []:
-        p = s.get("plan") or {}
+        p = plan_of(s)
         if not p.get("entry") or not p.get("stop") or p["entry"] <= p["stop"]:
             continue
         if (p.get("rr") or 0) < 2:
             continue  # never size a plan under 2:1, whatever the verdict says
         if s.get("verdict") == "valid" or (s.get("verdict") == "wait" and meta.get("include_wait_orders")):
             picks.append(s)
-    picks.sort(key=lambda s: (s.get("verdict") != "valid", -(s.get("score") or {}).get("total", 0), -((s.get("plan") or {}).get("rr") or 0)))
+    picks.sort(key=lambda s: (s.get("verdict") != "valid", -(s.get("score") or {}).get("total", 0), -(plan_of(s).get("rr") or 0)))
     for h in run.get("holdings") or []:  # "add" actions compete for the same money
         if h.get("action") == "add" and (h.get("plan") or {}).get("entry"):
             picks.append({"tk": h["tk"], "sector": h.get("sector"), "verdict": "add", "plan": h["plan"], "score": h.get("score") or {}})
 
     rows, remaining = [], cap_total
     for i, s in enumerate(picks):
-        p, tk = s["plan"], s["tk"]
+        p, tk = plan_of(s) or s["plan"], s["tk"]
         entry, stop, target = float(p["entry"]), float(p["stop"]), p.get("target")
         share_budget = remaining / max(1, len(picks) - i) if amount else float("inf")  # Check / Positions: size by risk and caps only
         by_risk = math.floor(risk_budget / (entry - stop))
@@ -229,8 +237,32 @@ def allocate(run: dict, cfg: dict) -> dict:
     return run
 
 
-# ----------------------------------------------------------------- validation
-def check(run: dict) -> list[str]:
+# ----------------------------------------------------------------- gates, verdicts, validation
+sys.path.insert(0, str(HERE))
+import egx_gates as G  # noqa: E402  (same folder)
+
+
+def verdicts(run: dict, cfg: dict) -> tuple[list[str], list[str]]:
+    """Compute every stock's verdict from its receipts. Returns (checklist lines, errors)."""
+    wl = G.whitelist(SKILL_DIR)
+    lines, errs = [], []
+    for s in run.get("stocks") or []:
+        res, e = G.compute(s, run, wl, cfg, fees_side)
+        errs += e
+        s["verdict"] = res["verdict"]
+        s["verdict_by"] = "egx.py " + VERSION
+        s["auto_reasons"] = res.get("reasons") or []
+        s["gates"] = [{"gate": g, "ok": ok, "note": n} for g, ok, n in res.get("gates") or []]
+        if res.get("wait_for"):
+            s["wait_for"] = res["wait_for"]
+        else:
+            s.pop("wait_for", None)
+        lines.append(G.checklist_line(s.get("tk", "?"), res))
+    return lines, errs
+
+
+def check(run: dict, cfg: dict | None = None) -> list[str]:
+    cfg = cfg or load_config()
     errs = []
     m = run.get("meta") or {}
     for k in ("command", "amount"):
@@ -238,35 +270,31 @@ def check(run: dict) -> list[str]:
             errs.append(f"meta.{k} missing")
     if not (run.get("market") or {}).get("egx30"):
         errs.append("market.egx30 missing (run EGX.market())")
+    wl = G.whitelist(SKILL_DIR)
     for s in run.get("stocks") or []:
         tk = s.get("tk", "?")
-        if s.get("verdict") not in ("valid", "wait", "not_valid", "dropped", None):
-            errs.append(f"{tk}: verdict must be valid / wait / not_valid / dropped")
-        if s.get("verdict") == "valid" and (s.get("drop") or ((s.get("plan") or {}).get("rr") or 0) < 2):
+        if not str(s.get("verdict_by", "")).startswith("egx.py"):
+            errs.append(f"{tk}: verdict not computed by egx.py (run: egx.py verdict run.json)")
+            continue
+        res, e = G.compute(dict(s), run, wl, cfg, fees_side)
+        errs += e
+        if res["verdict"] != s.get("verdict"):
+            errs.append(f"{tk}: verdict {s.get('verdict')} does not match the rules ({res['verdict']}); re-run egx.py verdict")
+        if s.get("verdict") == "valid" and (s.get("drop") or (s.get("mode") != "t0" and ((s.get("plan") or {}).get("rr") or 0) < 2)):
             errs.append(f"{tk}: verdict valid but the chart script dropped it ({s.get('drop')}) or R:R < 2")
-        if s.get("verdict") in ("valid", "wait", "not_valid") and s.get("full", True):
-            if not s.get("news") and not s.get("news_checked"):
-                errs.append(f"{tk}: deep-checked stock without news (add news[] or news_checked:true with 'no fresh news')")
-            if not s.get("screenshot") and not s.get("screenshot_b64"):
-                errs.append(f"{tk}: deep-checked stock without a screenshot of the drawn ThndrX chart (mandatory evidence)")
-            elif s.get("screenshot") and not pathlib.Path(s["screenshot"]).exists():
-                errs.append(f"{tk}: screenshot file not found: {s['screenshot']}")
-        for n in s.get("news") or []:
-            if not n.get("url") or not n.get("date"):
-                errs.append(f"{tk}: news item without url or date: {n.get('title', '')[:40]}")
+        if s.get("verdict") not in ("dropped", "unchecked"):
+            errs += [f"{tk}: {x}" for x in G.news_problems(s.get("news"), wl)]
     for c in run.get("catalysts") or []:
-        if not c.get("url") or not c.get("date"):
-            errs.append(f"catalyst {c.get('tk')}: url and date are required")
+        errs += G.catalyst_problems(c, wl)
+    for h in run.get("holdings") or []:
+        errs += [f"holding {h.get('tk')}: {x}" for x in G.news_problems(h.get("news"), wl)]
     return errs
 
 
 # ----------------------------------------------------------------- report (HTML lives in egx_report.py)
-sys.path.insert(0, str(HERE))
-import egx_report  # noqa: E402
-
-
-def build_html(run: dict, cfg: dict, fname: str) -> str:
-    return egx_report.build_html(run, cfg, fname, egx_report.recap_composition(run, cfg), VERSION, index_row(run, fname))
+import egx_report  # noqa: E402  (video recap only)
+import egx_page  # noqa: E402
+import egx_memory  # noqa: E402
 
 
 def recap_composition(run: dict, cfg: dict) -> str:
@@ -319,18 +347,64 @@ def report_name(run: dict, cfg: dict) -> str:
     return f"EGX_{cmd}_{d}_{hm}.html"
 
 
-def embed_screenshots(run: dict) -> None:
-    """screenshot paths -> base64 (kept small); missing files are ignored"""
-    import base64
-    def emb(s):
-        pth = s.get("screenshot")
-        if pth and not s.get("screenshot_b64") and pathlib.Path(pth).exists():
-            s["screenshot_b64"] = base64.b64encode(pathlib.Path(pth).read_bytes()).decode()
-    for s in run.get("stocks") or []:
-        emb(s)
-    for h in run.get("holdings") or []:
-        emb(h)
-    emb(run.setdefault("market", {}))
+def attach_screenshots(run: dict, folder: pathlib.Path, rid: str) -> None:
+    """copy each chart screenshot next to the report (shots/) and give the page its picture"""
+    import shutil
+    shots = folder / "shots"
+    for s in (run.get("stocks") or []) + (run.get("holdings") or []):
+        for holder, key in ((s, "screenshot"), (s.get("t0") or {}, "screenshot")):
+            src = holder.get(key)
+            if not src or not pathlib.Path(src).is_file():
+                continue
+            shots.mkdir(exist_ok=True)
+            ext = pathlib.Path(src).suffix.lower() or ".jpg"
+            dst = shots / f"{rid}_{s.get('tk')}{'_T0' if holder is not s else ''}{ext}"
+            if pathlib.Path(src).resolve() != dst.resolve():
+                shutil.copy2(src, dst)
+            s["_shot_file"] = f"shots/{dst.name}"
+            s["_shot_uri"] = egx_page.img_uri(dst)
+            s["_shot_time"] = _dt.datetime.fromtimestamp(pathlib.Path(src).stat().st_mtime).strftime("%H:%M")
+
+
+def make_pdf(html_path: pathlib.Path) -> tuple[str | None, str | None]:
+    import shutil, subprocess
+    cands = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium",
+             shutil.which("google-chrome") or "", shutil.which("chromium") or "", shutil.which("chrome") or "",
+             r"C:\Program Files\Google\Chrome\Application\chrome.exe"]
+    chrome = next((c for c in cands if c and os.path.exists(c)), None)
+    if not chrome:
+        return None, "Chrome not found: PDF not made"
+    pdf = html_path.with_suffix(".pdf")
+    r = subprocess.run([chrome, "--headless=new", "--disable-gpu", "--no-pdf-header-footer", "--print-to-pdf-no-header",
+                        f"--print-to-pdf={pdf}", "--virtual-time-budget=4000", html_path.resolve().as_uri()],
+                       capture_output=True, text=True, timeout=120)
+    return (str(pdf), None) if pdf.exists() and pdf.stat().st_size > 1000 else (None, (r.stderr or "PDF failed")[-300:])
+
+
+def drive_plan(folder: pathlib.Path, cfg: dict, files: list[pathlib.Path]) -> dict | None:
+    """what Claude uploads to Drive: create new files, update the memory files already there"""
+    import hashlib
+    fid = cfg.get("drive_folder_id")
+    if not fid:
+        return None
+    known = {}
+    dj = folder / "drive.json"
+    if dj.exists():
+        known = json.loads(dj.read_text(encoding="utf-8"))
+    out = []
+    for f_ in files:
+        if not f_ or not f_.exists():
+            continue
+        sha = hashlib.sha256(f_.read_bytes()).hexdigest()
+        mime = {".html": "text/html", ".pdf": "application/pdf", ".jsonl": "text/plain"}.get(f_.suffix, "application/octet-stream")
+        k = known.get(f_.name) or {}
+        act = "skip" if k.get("id") and k.get("sha256") == sha else "replace" if k.get("id") else "create"
+        out.append({"name": f_.name, "action": act, "old_file_id": k.get("id"), "mime": mime,
+                    "file_ref": f"sha256:{sha}:{f_.resolve().as_posix()}"})
+    return {"folder_id": fid, "files": out,
+            "how": "create / replace: create_file(parentId=folder_id, title=name, base64Content=file_ref, contentMimeType=mime,"
+                   " disableConversionToGoogleType=true), then for replace trash_file(old_file_id) (update_file cannot change content);"
+                   " then egx.py drive-record NAME NEW_FILE_ID. skip: already up to date."}
 
 
 # ----------------------------------------------------------------- commands
@@ -351,41 +425,40 @@ def cmd_allocate(a, cfg):
 
 def cmd_report(a, cfg):
     run = read_json(a.run)
-    errs = check(run)
-    if errs and not a.force:
-        print("run file problems (fix them or pass --force):\n - " + "\n - ".join(errs), file=sys.stderr)
+    errs = check(run, cfg)
+    if errs:  # no --force: a report is only built from a run that passes every rule
+        print("run file problems (fix them, then run egx.py verdict and report again):\n - " + "\n - ".join(errs), file=sys.stderr)
         sys.exit(2)
     if "allocation" not in run or a.reallocate:
         allocate(run, cfg)
-    embed_screenshots(run)
     folder = reports_dir(cfg, a.out)
     name = report_name(run, cfg)
+    rid = name.rsplit(".", 1)[0]
+    attach_screenshots(run, folder, rid)
+    counts = egx_memory.save_run(folder, run, name)
     out = folder / name
-    out.write_text(build_html(run, cfg, name), encoding="utf-8")
+    out.write_text(egx_page.build_html(run, cfg, name, VERSION, counts), encoding="utf-8")
     idx = update_index(folder, index_row(run, name))
-    res = {"report": str(out), "index": str(idx), "bytes": out.stat().st_size}
+    res = {"report": str(out), "index": str(idx), "bytes": out.stat().st_size, "memory": counts}
+    pdf = None
+    if not a.no_pdf:
+        pdf, perr = make_pdf(out)
+        res["pdf"] = pdf
+        if perr:
+            res["pdf_error"] = perr
     if a.video:
-        vd = folder / "video" / name.replace(".html", "")
+        vd = folder / "video" / rid
         vd.mkdir(parents=True, exist_ok=True)
         (vd / "index.html").write_text(recap_composition(run, cfg), encoding="utf-8")
         res["video_project"] = str(vd)
-        mp4 = folder / name.replace(".html", ".mp4")
+        mp4 = folder / (rid + ".mp4")
         res["render"] = f'cd "{vd}" && npx hyperframes render --output "{mp4}"'
-        if a.render:
-            import shutil, subprocess
-            env = dict(os.environ)
-            for c in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome",
-                      r"C:\Program Files\Google\Chrome\Application\chrome.exe"):
-                if os.path.exists(c) and "HYPERFRAMES_BROWSER_PATH" not in env:
-                    env["HYPERFRAMES_BROWSER_PATH"] = c
-            if shutil.which("npx"):
-                r = subprocess.run(["npx", "-y", "hyperframes@latest", "render", "--output", str(mp4)], cwd=vd, env=env,
-                                   capture_output=True, text=True, shell=(os.name == "nt"))
-                res["mp4"] = str(mp4) if mp4.exists() else None
-                if not mp4.exists():
-                    res["render_error"] = (r.stderr or r.stdout)[-600:]
-            else:
-                res["render_error"] = "Node.js (npx) not found"
+    plan = drive_plan(folder, cfg, [out, pathlib.Path(pdf) if pdf else None] + [folder / f_ for f_ in egx_memory.FILES])
+    if plan:
+        res["drive"] = plan
+    for s in (run.get("stocks") or []) + (run.get("holdings") or []):
+        for k in ("_shot_uri", "_shot_time", "screenshot_b64"):
+            s.pop(k, None)
     write_json(a.run, run)
     print(json.dumps(res, ensure_ascii=False))
 
@@ -446,28 +519,56 @@ def cmd_read(a, cfg):
     print(json.dumps(d, ensure_ascii=False, indent=None if a.compact else 1))
 
 
-def cmd_history(a, cfg):
+def cmd_recall(a, cfg):
+    print(egx_memory.recall(reports_dir(cfg, a.dir), a.ticker, a.last))
+
+
+def cmd_news(a, cfg):
+    print(egx_memory.news(reports_dir(cfg, a.dir), a.ticker, a.since, a.limit))
+
+
+def cmd_runs(a, cfg):
+    print(egx_memory.runs(reports_dir(cfg, a.dir), a.command, a.since, a.last))
+
+
+def cmd_outcome(a, cfg):
+    print(egx_memory.set_outcome(reports_dir(cfg, a.dir), a.run, a.ticker, a.result, a.date, a.note))
+
+
+def cmd_open(a, cfg):
+    print(egx_memory.open_lines(reports_dir(cfg, a.dir)))
+
+
+def cmd_drive_record(a, cfg):
+    import hashlib
     folder = reports_dir(cfg, a.dir)
-    tk = a.ticker.upper()
-    for r in load_index(folder):
-        if tk not in (r["tickers"] + ";" + r["holdings"]).split(";"):
-            continue
-        try:
-            d = extract_data(folder / r["file"])
-        except Exception as e:
-            print(r["file"], "unreadable:", e)
-            continue
-        s = next((s for s in d.get("stocks") or [] if s.get("tk") == tk), {}) or {}
-        h = next((h for h in d.get("holdings") or [] if h.get("tk") == tk), {}) or {}
-        p = s.get("plan") or {}
-        print(f'{r["created"][:16]} {r["command"]:11} {s.get("verdict") or h.get("action") or "-":9} last {s.get("last") or h.get("price")} '
-              f'E {p.get("entry")} S {p.get("stop")} T {p.get("target")} RR {p.get("rr")} score {(s.get("score") or {}).get("total")}  {r["file"]}')
+    dj = folder / "drive.json"
+    known = json.loads(dj.read_text(encoding="utf-8")) if dj.exists() else {}
+    f_ = folder / a.name
+    known[a.name] = {"id": a.file_id, "sha256": hashlib.sha256(f_.read_bytes()).hexdigest() if f_.exists() else None,
+                     "at": now_local(cfg).strftime("%Y-%m-%dT%H:%M")}
+    dj.write_text(json.dumps(known, indent=1), encoding="utf-8")
+    print(f"{a.name} -> Drive {a.file_id}")
 
 
 def cmd_check(a, cfg):
-    errs = check(read_json(a.run))
+    run = read_json(a.run)
+    errs = check(run, cfg)
+    for s in run.get("stocks") or []:
+        if s.get("gates"):
+            print(G.checklist_line(s.get("tk", "?"), {"verdict": s.get("verdict"), "gates": [(g["gate"], g["ok"], g["note"]) for g in s["gates"]], "reasons": s.get("auto_reasons")}))
     print("OK" if not errs else "\n".join(errs))
     sys.exit(1 if errs else 0)
+
+
+def cmd_verdict(a, cfg):
+    run = read_json(a.run)
+    lines, errs = verdicts(run, cfg)
+    write_json(a.run, run)
+    print("\n".join(lines))
+    if errs:
+        print("\n".join(errs), file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_config(a, cfg):
@@ -480,13 +581,21 @@ def main(argv=None):
     p = sp.add_parser("fees"); p.add_argument("value"); p.set_defaults(fn=cmd_fees)
     p = sp.add_parser("allocate"); p.add_argument("run"); p.set_defaults(fn=cmd_allocate)
     p = sp.add_parser("report"); p.add_argument("run"); p.add_argument("--out"); p.add_argument("--video", action="store_true"); p.add_argument("--render", action="store_true", help="with --video: render the MP4 now (needs Node + Chrome)")
-    p.add_argument("--force", action="store_true"); p.add_argument("--reallocate", action="store_true"); p.set_defaults(fn=cmd_report)
+    p.add_argument("--reallocate", action="store_true"); p.add_argument("--no-pdf", action="store_true"); p.set_defaults(fn=cmd_report)
+    p = sp.add_parser("recall"); p.add_argument("ticker"); p.add_argument("--last", type=int, default=5); p.add_argument("--dir"); p.set_defaults(fn=cmd_recall)
+    p = sp.add_parser("news"); p.add_argument("ticker", nargs="?"); p.add_argument("--since"); p.add_argument("--limit", type=int, default=20); p.add_argument("--dir"); p.set_defaults(fn=cmd_news)
+    p = sp.add_parser("runs"); p.add_argument("--command"); p.add_argument("--since"); p.add_argument("--last", type=int, default=10); p.add_argument("--dir"); p.set_defaults(fn=cmd_runs)
+    p = sp.add_parser("outcome"); p.add_argument("run"); p.add_argument("ticker"); p.add_argument("result", choices=["target", "stop", "expired", "time", "manual"])
+    p.add_argument("date"); p.add_argument("--note"); p.add_argument("--dir"); p.set_defaults(fn=cmd_outcome)
+    p = sp.add_parser("open"); p.add_argument("--dir"); p.set_defaults(fn=cmd_open)
+    p = sp.add_parser("drive-record"); p.add_argument("name"); p.add_argument("file_id"); p.add_argument("--dir"); p.set_defaults(fn=cmd_drive_record)
     p = sp.add_parser("search"); p.add_argument("--ticker"); p.add_argument("--command"); p.add_argument("--since")
     p.add_argument("--verdict", choices=["valid", "wait", "not_valid"]); p.add_argument("--limit", type=int, default=30); p.add_argument("--dir"); p.set_defaults(fn=cmd_search)
     p = sp.add_parser("read"); p.add_argument("file"); p.add_argument("--ticker"); p.add_argument("--section"); p.add_argument("--dir")
     p.add_argument("--compact", action="store_true"); p.set_defaults(fn=cmd_read)
-    p = sp.add_parser("history"); p.add_argument("ticker"); p.add_argument("--dir"); p.set_defaults(fn=cmd_history)
+    p = sp.add_parser("history"); p.add_argument("ticker"); p.add_argument("--last", type=int, default=10); p.add_argument("--dir"); p.set_defaults(fn=cmd_recall)  # old name
     p = sp.add_parser("check"); p.add_argument("run"); p.set_defaults(fn=cmd_check)
+    p = sp.add_parser("verdict"); p.add_argument("run"); p.set_defaults(fn=cmd_verdict)
     p = sp.add_parser("config"); p.set_defaults(fn=cmd_config)
     a = ap.parse_args(argv)
     a.fn(a, load_config())
