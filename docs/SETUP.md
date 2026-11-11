@@ -52,7 +52,7 @@ The first time a skill runs it sends a ~20 KB script into the ThndrX tab once an
 | Say | What happens |
 |---|---|
 | `check COMI` / `افحص COMI` | full scripted analysis, drawings verified on your ThndrX chart, news, verdict, exact order steps, report |
-| `check COMI T0` | same-session check on 5-minute bars (10:15-13:30 Cairo, exit by 14:20) |
+| `check COMI T0` | same-session check on 5-minute bars (10:15-13:30 Cairo, exit by 14:10) |
 | `market` | EGX30 regime, breadth, sectors |
 | `my positions` / `راجع مراكزي` | hold / tighten / sell / add for each stock you hold |
 | `Scan` / `لف على الـ 30` | positions + Top 30 + Hot stocks + Same-day T0 (in session), top 3 per list, allocation of your amount |

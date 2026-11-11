@@ -43,7 +43,7 @@ dates it came from. This file is the human-readable spec; if you change a rule, 
 - Double bottom: last 2 swing lows within 0.5 ATR. Higher low at support.
 
 ## G. Relative strength
-- Stock % change over 20 and 60 bars minus EGX30's (EGX30 is read once per session by `EGX.market()`).
+- Stock % change over 20 and 60 bars minus EGX30's. Both the endpoint and start date of each return must match; otherwise that RS value is unknown. Refresh EGX30 with `EGX.market()` before analysis. During an open session, both swing series exclude today’s unfinished daily bar.
 
 ## H. Plan
 | Setup | Entry | Stop |
@@ -64,10 +64,10 @@ trend 0-2 (daily up, weekly up) · RS 0-2 (RS20 > 0, RS60 > 0) · R:R 0-2 (>=3 -
 The score ranks; it never makes a verdict by itself.
 
 ## Setup history (deep checks)
-Over the 300 bars: every time the low came within 0.25 ATR of today's support top and the close held above its low, simulate an entry at that close, a stop at support low - 0.5 ATR and a target at the same distance as today's plan. Count which came first within 15 bars (next try at least 5 bars later). Under 3 tries = "too few to judge".
+Over the 300 bars: every time the low came within 0.25 ATR of today's support top and the close held above its low, simulate an entry at that close, a stop at support low - 0.5 ATR and a target at the same distance as today's plan. Count which came first within 15 bars (next try at least 5 bars later). This uses today’s zones on historical bars and overlapping 15-bar windows: it contains look-ahead and dependence. Output is explicitly descriptive, never a backtest, win probability or proof of an edge. Fees, fills, corporate actions and settlement are not simulated.
 
 ## Market regime (EGX30)
-Up = close above a rising MA50 and above MA200. Down = close below a falling MA50 and below MA200. Anything else = Correction.
+Up = close above a rising MA50 and above MA200. Down = close below a falling MA50 and below MA200. Anything else = Mixed (treated like Correction by allocation).
 
 ## Drawing and verify (gates 4-5, `EGX.draw` / `EGX.verifyChart`)
 - Run only after the news gate, so event dates can be drawn. Chart must show the ticker on 1D.
@@ -82,4 +82,20 @@ Up = close above a rising MA50 and above MA200. Down = close below a falling MA5
 - VWAP (typical price x volume, cumulative from the open), opening range = first 6 bars (30 min), ATR5(14) and RSI5(14) on 5-minute bars, relative volume = today's volume so far vs the same number of bars in earlier sessions (needs 3 sessions, else unknown), day change vs EGX30 (`EGX.market()` today), share of bars closing above VWAP.
 - Setups, first that fits: **opening-range breakout** (a 5-min close above the range high on volume above the previous 6 bars, price above VWAP and the range high; entry = range high; stop = the tighter of range high - 0.3 ATR5 and VWAP, at least 1 ATR5 below entry) · **VWAP pullback** (above VWAP on >= 70% of bars, last bar low within 0.25 ATR5 of VWAP and closing above it; entry = VWAP; stop = VWAP - 1.25 ATR5) · **daily-support bounce** (last bar low within 0.25 ATR5 of the daily support top, green bar closing above the previous high; entry = last close; stop = support low - 0.25 ATR5, at least 1 ATR5).
 - Target = the nearer of the day's high and the next daily resistance (above the entry); entry + 2R only when neither is above the entry. R:R must still be >= 2. Drops: `limit` (|day change| >= 17%), `thin` (daily average value < EGP 20M), `spread` (> 0.3%), `rr` (< 2), `no-setup`, `early`.
-- Marks (`EGX·T0 TICKER ...`): opening-range box, VWAP, entry, stop, target, nearest daily support and resistance. Exit by 14:20, no new entry after 13:30.
+- Marks (`EGX·T0 TICKER ...`): opening-range box, VWAP, entry, stop, target, nearest daily support and resistance. Exit by 14:10, no new entry after 13:30.
+
+## Risk and data limitations (v3.3)
+- Reject invalid OHLCV, non-finite values, duplicate or out-of-order timestamps rather than silently sorting or filling them.
+- Only valid plans are funded. Every plan must have finite prices with `0 < stop < entry < target`.
+- Actual size respects available cash including entry fees, per-trade and aggregate estimated stop loss including exit fees and configured ATR slippage, stock and sector caps. Swing and T0 orders share those budgets.
+- Known existing holding stops contribute risk; a position without a quantifiable stop blocks additional allocation. A configured zero risk budget stays zero.
+- Net R:R at the final share count must meet the threshold (swing 2, T0 1.5). It can fail even when headline R:R passes.
+- Data exports do not establish adjustment treatment for dividends, splits or capital increases. Confirm corporate actions before trusting price discontinuities. Weekly data may include the current incomplete week. Session holidays and auction phases need current official verification; weekday alone is insufficient.
+- Neither indicator agreement nor the score proves positive expectancy. Validate a frozen rule set on chronologically held-out, corporate-action-adjusted EGX data with fees, spread, execution delay, settlement and delisted names before claiming performance.
+
+## Position management (`egx.py manage`, `scripts/egx_manage.py`)
+Computed by the script from the holding's facts, never chosen by Claude. R = avgPrice - first stop. First rule that fits:
+exit (negative material news, close under the stop, close under support low - 0.5 ATR) · time stop (10 sessions held and under +0.5R) ·
+partial (at +1R: sell half, stop to breakeven) · trail (after the partial: highest close since entry - 2.5 ATR or last swing low - 0.5 ATR,
+whichever is higher, never below the old stop) · add (only when asked with `want_add`) · hold. These numbers are untested defaults until
+the backtest (`tests/backtest.js`) measures them.

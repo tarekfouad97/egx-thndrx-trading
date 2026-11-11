@@ -1,7 +1,7 @@
 {
   "name": "egx-thndrx-trading",
-  "version": "0.2.0",
-  "description": "EGX trading helpers on ThndrX: scripted chart analysis with drawings, news and catalysts, positions review (hold / sell / add), egx-check (check, positions, log) and egx-scan (Scan, Scan Max, Scan Spec, Scan T0), and ThndrX-style HTML reports with evidence and an index for history search. Read-only on the account; never places orders.",
+  "version": "0.5.0",
+  "description": "EGX trading helpers on ThndrX: egx-check (check, check T0, market, positions, log, monthly, memory) and egx-scan (Top 30, Hot, Same-day T0). Scripted chart analysis with verified drawings, whitelisted news, script-computed verdicts, and an atomic-step ledger that records every step with its proof. HTML + PDF reports with memory files. Read-only on the account; never places orders.",
   "author": {
     "name": "Tarek Fouad",
     "email": "tare2fo2ad@gmail.com"
@@ -9,5 +9,13 @@
   "homepage": "https://github.com/tarekfouad97/egx-thndrx-trading",
   "repository": "https://github.com/tarekfouad97/egx-thndrx-trading",
   "license": "MIT",
-  "keywords": ["egx", "thndr", "thndrx", "trading", "egypt", "stocks", "reports"]
+  "keywords": [
+    "egx",
+    "thndr",
+    "thndrx",
+    "trading",
+    "egypt",
+    "stocks",
+    "reports"
+  ]
 }

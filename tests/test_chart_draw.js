@@ -17,7 +17,9 @@ const ch = {
   createStudy: async (name, a, b, inp) => { const id = 'st' + nextId++; studies.push({ id, len: inp.length }); return id; },
 };
 global.window = {}; global.sessionStorage = { getItem() { return null; }, setItem() {} };
-global.document = { querySelectorAll: (q) => (q === 'iframe' ? [{ contentWindow: { tradingViewApi: { activeChart: () => ch } } }] : []), body: { innerText: '' } };
+global.innerWidth = 1440; global.innerHeight = 900;
+global.document = { querySelectorAll: (q) => (q === 'iframe' ? [{ contentWindow: { tradingViewApi: { activeChart: () => ch } }, getBoundingClientRect: () => ({ left: 300, top: 80, right: 1100, bottom: 700 }) }] : []),
+  body: { innerText: '', appendChild() {} }, getElementById: () => null, createElement: () => ({ style: {} }) };
 global.getComputedStyle = () => ({ color: '' });
 eval(fs.readFileSync(path.join(__dirname, '../skills/egx-check/scripts/egx_chart.js'), 'utf8'));
 const E = window.EGX;
@@ -60,5 +62,14 @@ function fivemin() { // 3 prior sessions + today; Cairo = UTC+2 in Nov, session 
   }
   const back = await E.daily(); ok(back.ok && RES === '1D', 'back to 1D');
   ok(E.receipts('TEST').daily.draw && E.receipts('TEST').daily.verify, 'receipts exported');
+  // call log (proof for the step ledger)
+  E.chartRect(4); E.exportToPage(['TEST']);
+  const ex = JSON.parse(E.exportRun(['TEST']));
+  const fns = ex.calls.map((c) => c[0]);
+  ok(ex.egxjs === E.version && ['draw', 'verifyChart', 'intraday', 'daily', 'chartRect', 'exportToPage'].every((f) => fns.includes(f)), 'call log exported: ' + [...new Set(fns)].join(','));
+  const vAt = E.receipts('TEST').t0 ? E.receipts('TEST').t0.verify.at : 0, cr = ex.calls.filter((c) => c[0] === 'chartRect').pop();
+  ok(cr[2] >= vAt && ex.calls.every((c) => c.length === 4 && typeof c[2] === 'number'), 'call log rows are [fn, ticker, time, ok], chartRect after the verify');
+  ok(ex.calls.find((c) => c[0] === 'verifyChart' && c[3] === 0), 'a failed verify is logged as not ok');
+  E.clearExport();
   process.exit(fails ? 1 : 0);
 })();

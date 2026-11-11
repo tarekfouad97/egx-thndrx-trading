@@ -22,7 +22,7 @@
  * Rules are documented in references/analysis-rules.md (keep both in sync).
  */
 (function () {
-  const VERSION = '3.0.0';
+  const VERSION = '3.3.1';
   if (window.EGX && window.EGX.version === VERSION) return;
   const MARK = 'EGX·'; // prefix on every drawing label, so we only ever clear our own lines
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -43,7 +43,7 @@
   const store = (k, v) => { try { sessionStorage.setItem('EGX_' + k, JSON.stringify(v)); } catch (e) {} };
   const load = (k) => { try { return JSON.parse(sessionStorage.getItem('EGX_' + k)); } catch (e) { return null; } };
 
-  const S = { results: load('results') || {}, index: load('index') || null, market: load('market') || null, shapes: load('shapes') || {} };
+  const S = { results: load('results') || {}, index: load('index') || null, market: load('market') || null, shapes: load('shapes') || {}, calls: load('calls') || [] };
   const now = () => ({ at: Date.now(), iso: new Date().toISOString() });
   const toT = (s) => Date.parse(s + 'T00:00:00Z') / 1000;
   const cairo = (t) => { const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(t * 1000)); const g = (k) => (p.find((x) => x.type === k) || {}).value; return { d: `${g('year')}-${g('month')}-${g('day')}`, hm: `${g('hour') === '24' ? '00' : g('hour')}:${g('minute')}` }; };
@@ -61,12 +61,25 @@
     const vi = d.schema.findIndex((s) => s.plotId === 'vol');
     const title = clean(d.schema[1] && d.schema[1].sourceTitle).replace(/,\s*EGX$/, '');
     const B = d.data.map((r) => ({ t: r[0], o: r[1], h: r[2], l: r[3], c: r[4], v: vi > 0 ? r[vi] || 0 : 0 }));
+    for (let i = 0; i < B.length; i++) {
+      const b = B[i];
+      if (![b.t, b.o, b.h, b.l, b.c, b.v].every(Number.isFinite) || b.l <= 0 || b.v < 0 || b.h < Math.max(b.o, b.c, b.l) || b.l > Math.min(b.o, b.c) || (i && b.t <= B[i - 1].t))
+        throw new Error('invalid OHLCV or non-increasing timestamps: reload chart data');
+    }
     return { title, B, hasVol: vi > 0 };
   }
 
   // ---------- open a ticker through the watchlist search ----------
+  const headHas = (tk) => [...document.querySelectorAll('button.disable-widget-grab-handle')].map((b) => clean(b.innerText)).includes(tk);
+  function openRc(tk, d) { let res = null; try { res = chart().resolution(); } catch (e) {} return { ...now(), tk, title: d.title, headerMatch: headHas(tk), symbol: chart().symbol(), resolution: res, bars: d.B.length, lastBar: dt(d.B[d.B.length - 1].t) }; }
   async function open(tk, timeoutMs = 9000) {
     tk = String(tk).toUpperCase().trim();
+    try { // the ticker is already on the chart: give a fresh receipt instead of waiting for a symbol change that never comes
+      if (S.lastOpen && S.lastOpen.tk === tk && S.lastOpen.symbol === chart().symbol()) {
+        const d = await bars();
+        if (d.B.length && (headHas(tk) || String(d.title || '').toUpperCase() === tk)) { const rc = { ...openRc(tk, d), already: true }; S.lastOpen = rc; return { ok: true, tk, title: d.title, bars: d.B.length, headerMatch: rc.headerMatch, already: true, receipt: rc }; }
+      }
+    } catch (e) {}
     let inp = document.querySelector('input[placeholder="ابحث عن سهم"]');
     if (!inp || !inp.offsetParent) {
       const b = [...document.querySelectorAll('button')].find((b) => b.querySelector('[aria-label="search"]'));
@@ -96,9 +109,7 @@
           await sleep(500);
           const d = await bars();
           if (d.B.length) {
-            const head = [...document.querySelectorAll('button.disable-widget-grab-handle')].map((b) => clean(b.innerText));
-            let res = null; try { res = chart().resolution(); } catch (e) {}
-            const rc = { ...now(), tk, title: d.title, headerMatch: head.includes(tk), symbol: chart().symbol(), resolution: res, bars: d.B.length, lastBar: dt(d.B[d.B.length - 1].t) };
+            const rc = openRc(tk, d);
             S.lastOpen = rc;
             return { ok: true, tk, title: d.title, bars: d.B.length, headerMatch: rc.headerMatch, receipt: rc };
           }
@@ -115,8 +126,8 @@
     const out = new Array(C.length).fill(null); if (C.length <= k) return out;
     let ag = 0, al = 0;
     for (let i = 1; i <= k; i++) { const x = C[i] - C[i - 1]; ag += Math.max(x, 0); al += Math.max(-x, 0); }
-    ag /= k; al /= k; out[k] = al === 0 ? 100 : 100 - 100 / (1 + ag / al);
-    for (let i = k + 1; i < C.length; i++) { const x = C[i] - C[i - 1]; ag = (ag * (k - 1) + Math.max(x, 0)) / k; al = (al * (k - 1) + Math.max(-x, 0)) / k; out[i] = al === 0 ? 100 : 100 - 100 / (1 + ag / al); }
+    ag /= k; al /= k; out[k] = al === 0 ? (ag === 0 ? 50 : 100) : 100 - 100 / (1 + ag / al);
+    for (let i = k + 1; i < C.length; i++) { const x = C[i] - C[i - 1]; ag = (ag * (k - 1) + Math.max(x, 0)) / k; al = (al * (k - 1) + Math.max(-x, 0)) / k; out[i] = al === 0 ? (ag === 0 ? 50 : 100) : 100 - 100 / (1 + ag / al); }
     return out;
   }
   function atrArr(B, k = 14) {
@@ -142,7 +153,7 @@
   function weekly(B) {
     const W = []; let key = null;
     for (const b of B) {
-      const d = new Date(b.t * 1000); const day = (d.getUTCDay() + 1) % 7; // EGX week starts Sunday
+      const d = new Date(b.t * 1000); const day = d.getUTCDay(); // EGX week starts Sunday
       const start = new Date(d.getTime() - day * 864e5).toISOString().slice(0, 10);
       if (start !== key) { W.push({ ...b }); key = start; } else { const w = W[W.length - 1]; w.h = Math.max(w.h, b.h); w.l = Math.min(w.l, b.l); w.c = b.c; w.v += b.v; w.t = b.t; }
     }
@@ -151,10 +162,13 @@
 
   // ---------- full analysis on the chart that is open ----------
   async function analyze(tk, opts = {}) {
-    const { title, B } = await bars();
+    const raw = await bars(); const title = raw.title; let B = raw.B, live = null;
+    // market open: today's daily bar is unfinished, so it is not a close. Levels, volume, candles and breakouts use finished bars only.
+    if (!opts.keepPartial && B.length > 61) { let mk = 'unknown'; try { mk = page().market; } catch (e) {} if (mk === 'open' && dt(B[B.length - 1].t) === cairo(Date.now() / 1000).d) { live = B[B.length - 1]; B = B.slice(0, -1); } }
     const n = B.length;
     const R = { tk, title, v: VERSION, asOf: n ? dt(B[n - 1].t) : null, bars: n, flags: [], evidence: [], receipts: (S.results[tk] && S.results[tk].receipts && opts.keepReceipts) ? S.results[tk].receipts : {} };
     if (S.lastOpen && S.lastOpen.tk === tk) R.receipts.open = S.lastOpen;
+    if (live) { R.partialBarDropped = dt(live.t); R.livePrice = tick(live.c); R.flags.push("market open: today's unfinished bar is not used; levels are as of the last finished bar"); }
     let resNow = null; try { resNow = chart().resolution(); } catch (e) {}
     if (resNow != null && !sameRes(resNow, '1D')) throw new Error('chart is on ' + resNow + ', not 1D: call EGX.daily() first');
     R.receipts.analyse = { ...now(), version: VERSION, bars: n, lastBar: n ? dt(B[n - 1].t) : null, titleMatch: !title || title.toUpperCase().includes(tk) || (S.lastOpen && S.lastOpen.headerMatch) };
@@ -169,7 +183,7 @@
     const sig = emaArr(macd.map((x) => (x == null ? 0 : x)), 9);
     const hist = macd.map((x, i) => (x == null || i < 35 ? null : x - sig[i]));
     R.spark = C.slice(-30).map((x) => tick(x));
-    R.last = tick(last); R.chg = r2((last / prev - 1) * 100); R.date = dt(B[n - 1].t);
+    R.last = tick(last); R.chg = r2((last / prev - 1) * 100); R.date = dt(B[n - 1].t); R.liveChg = live ? r2((live.c / last - 1) * 100) : null;
     R.atr = r2(atr, 3); R.atrPct = r2((atr / last) * 100);
     // A. trend
     const { PH, PL } = pivots(B, n - 130);
@@ -197,9 +211,14 @@
     const Z = [];
     for (const x of P) { const z = Z[Z.length - 1]; if (z && x.p - z.lo <= 2 * tol) { z.pts.push(x); z.hi = x.p; } else Z.push({ lo: x.p, hi: x.p, pts: [x] }); }
     const minC15 = Math.min(...C.slice(-15));
-    Z.forEach((z) => { z.n = z.pts.length; z.broken = minC15 < z.lo - 0.5 * atr; });
-    const fmtZ = (z) => z && { lo: tick(z.lo), hi: tick(z.hi), n: z.n, touches: z.pts.map((p) => p.d + '@' + tick(p.p) + p.k), weak: z.n < 2 || undefined };
-    let sup = Z.filter((z) => z.hi <= last * 1.01 && z.n >= 2 && !z.broken).sort((a, b) => b.hi - a.hi)[0] || null;
+    Z.forEach((z) => {
+      z.n = z.pts.length; z.pierced = minC15 < z.lo - 0.5 * atr; // a recent close under the zone: it cannot be today's support
+      // "broken support" only when it really was support: it holds a swing low and closes were above it before the last 15 bars
+      const i0 = Math.min(...z.pts.map((p) => p.i));
+      z.broken = z.pierced && z.pts.some((p) => p.k === 'L') && C.slice(i0, n - 15).some((c) => c > z.hi);
+    });
+    const fmtZ = (z) => z && { lo: tick(z.lo), hi: tick(z.hi), n: z.n, touches: z.pts.map((p) => p.d + '@' + tick(p.p) + p.k), weak: z.n < 2 || undefined, wasSupport: z.broken || undefined };
+    let sup = Z.filter((z) => z.hi <= last * 1.01 && z.n >= 2 && !z.pierced).sort((a, b) => b.hi - a.hi)[0] || null;
     if (!sup && PL.length) { const pl = PL[PL.length - 1]; if (pl.p < last) sup = { lo: pl.p, hi: pl.p, n: 1, pts: [{ ...pl, k: 'L' }] }; }
     const res = Z.filter((z) => z.lo > last * 1.005).sort((a, b) => a.lo - b.lo);
     const brokenSup = Z.filter((z) => z.broken && z.n >= 2 && z.lo > last * 1.005).map(fmtZ);
@@ -255,7 +274,13 @@
     // G. relative strength
     const ch = (k) => (n > k ? (last / C[n - 1 - k] - 1) * 100 : null);
     R.rs = { ch20: r2(ch(20)), ch60: r2(ch(60)) };
-    if (S.index) { R.rs.rs20 = r2(R.rs.ch20 - S.index.ch20); R.rs.rs60 = r2(R.rs.ch60 - S.index.ch60); }
+    if (S.index && S.index.date === R.asOf) {
+      for (const k of [20, 60]) {
+        const start = n > k ? dt(B[n - 1 - k].t) : null;
+        R.rs['rs' + k] = start && S.index['start' + k] === start && R.rs['ch' + k] != null && S.index['ch' + k] != null ? r2(R.rs['ch' + k] - S.index['ch' + k]) : null;
+      }
+    }
+    if (R.rs.rs20 == null) R.flags.push('relative strength unavailable: benchmark dates must match stock dates');
     // H. plan
     let plan = null;
     if (breakout) {
@@ -267,11 +292,12 @@
     }
     if (plan) {
       // target = just under the FIRST resistance above the entry (never skip a zone); none above -> 300-bar high
-      const tz = res.filter((z) => z.lo * 0.995 > plan.entry * 1.01);
-      plan.target = tz[0] ? tz[0].lo * 0.995 : hi300 * 0.995 > plan.entry * 1.01 && !res.length ? hi300 * 0.995 : null;
+      const tz = Z.filter((z) => z.n >= 2 && z.lo > plan.entry).sort((a, b) => a.lo - b.lo);
+      plan.target = tz[0] ? tz[0].lo * 0.995 : hi300 * 0.995 > plan.entry * 1.01 && !tz.length ? hi300 * 0.995 : null;
       plan.target2 = tz[1] ? tz[1].lo * 0.995 : null;
       ['entry', 'stop', 'target', 'target2'].forEach((k) => (plan[k] = tick(plan[k])));
       plan.rr = plan.target ? r2((plan.target - plan.entry) / (plan.entry - plan.stop)) : null;
+      plan.maxEntry = tick(plan.entry + 0.25 * atr); // never pay more than this (a gap above it cancels the buy)
       plan.stopATR = r2((plan.entry - plan.stop) / atr);
       plan.entryDistATR = r2((last - plan.entry) / atr);
       plan.fillSoon = plan.entryDistATR <= 2;
@@ -284,7 +310,7 @@
       liquidity: !R.volume.thin,
       stopWidth: !!(plan && plan.stopATR >= 1 && plan.stopATR <= 3),
       targetAbovePrice: !!(plan && plan.target && plan.target > last * 1.01),
-      notAtLimit: Math.abs(R.chg) < 18,
+      notAtLimit: Math.abs(R.liveChg != null ? R.liveChg : R.chg) < 18,
     };
     R.checks = checks;
     R.drop = !plan ? 'no-plan' : !checks.notAtLimit ? 'limit' : !checks.liquidity ? 'thin' : !checks.targetAbovePrice ? 'invalid' : !checks.rr ? 'rr' : !checks.stopWidth ? (plan.stopATR > 3 ? 'wide' : 'noise') : null;
@@ -323,7 +349,7 @@
         tries++; if (res === 'target') hits++; if (res === 'stop') stops++; dates.push(dt(B[i].t) + ':' + res); i += 5;
       }
     }
-    return { tries, hits, stops, judge: tries < 3 ? 'too few to judge' : r2(hits / tries * 100) + '% hit', dates: dates.slice(-8) };
+    return { tries, hits, stops, method: 'retrospective-current-zone', predictive: false, judge: 'Descriptive only: uses today’s support and target on past bars; not a backtest or win probability', dates: dates.slice(-8) };
   }
 
   // ---------- drawing ----------
@@ -332,10 +358,12 @@
     const M = [], p = R.plan, z = R.zones, tag = `${MARK}${R.tk} `, f = z._first || {};
     const pad = (lo, hi) => (hi - lo < 0.2 * atr ? [tick(lo - 0.1 * atr), tick(hi + 0.1 * atr)] : [lo, hi]);
     if (z.support) { const [lo, hi] = pad(z.support.lo, z.support.hi); M.push({ kind: 'support', shape: 'box', from: f.support || R.asOf, lo, hi, text: `${tag}دعم ${z.support.lo}-${z.support.hi} (${z.support.touches.map((x) => x.slice(5, 10)).join('، ')})`, color: '#f5a623', fill: 'rgba(245,166,35,0.18)', style: 0 }); }
-    (z.resistance || []).slice(0, 2).forEach((r, i) => { const [lo, hi] = pad(r.lo, r.hi); M.push({ kind: 'resistance' + (i + 1), shape: 'box', from: (f.res || [])[i] || R.asOf, lo, hi, text: `${tag}مقاومة ${r.lo}-${r.hi} (${r.n} لمسات)`, color: '#e74c3c', fill: 'rgba(231,76,60,0.15)', style: 0 }); });
-    (z.brokenSupportNowResistance || []).slice(0, 1).forEach((r) => { const [lo, hi] = pad(r.lo, r.hi); M.push({ kind: 'broken', shape: 'box', from: (f.broken || [])[0] || R.asOf, lo, hi, text: `${tag}دعم مكسور ← مقاومة ${r.lo}-${r.hi}`, color: '#c0392b', fill: 'rgba(192,57,43,0.08)', style: 2 }); });
+    (z.resistance || []).slice(0, 2).forEach((r, i) => { const [lo, hi] = pad(r.lo, r.hi); M.push({ kind: 'resistance' + (i + 1), shape: 'box', from: (f.res || [])[i] || R.asOf, lo, hi, text: r.wasSupport ? `${tag}دعم مكسور ← مقاومة ${r.lo}-${r.hi}` : `${tag}مقاومة ${r.lo}-${r.hi} (${r.n} لمسات)`, color: '#e74c3c', fill: 'rgba(231,76,60,0.15)', style: r.wasSupport ? 2 : 0 }); });
+    const shown = (z.resistance || []).slice(0, 2); // a zone already drawn as resistance is never drawn a second time
+    (z.brokenSupportNowResistance || []).map((r, i) => [r, i]).filter(([r]) => !shown.some((x) => x.lo === r.lo && x.hi === r.hi)).slice(0, 1).forEach(([r, i]) => { const [lo, hi] = pad(r.lo, r.hi); M.push({ kind: 'broken', shape: 'box', from: (f.broken || [])[i] || R.asOf, lo, hi, text: `${tag}دعم مكسور ← مقاومة ${r.lo}-${r.hi}`, color: '#c0392b', fill: 'rgba(192,57,43,0.08)', style: 2 }); });
     if (p) {
       M.push({ kind: 'entry', shape: 'hline', price: p.entry, text: `${tag}دخول ${p.entry}`, color: '#3498db', style: 0 });
+      if (p.type === 'pullback-at-support' && p.maxEntry) M.push({ kind: 'maxentry', shape: 'hline', price: p.maxEntry, text: `${tag}أقصى سعر شراء ${p.maxEntry}`, color: '#3498db', style: 2 });
       M.push({ kind: 'stop', shape: 'hline', price: p.stop, text: `${tag}وقف ${p.stop}`, color: '#e74c3c', style: 0 });
       if (p.target) M.push({ kind: 'target', shape: 'hline', price: p.target, text: `${tag}هدف ${p.target}`, color: '#2ecc71', style: 0 });
       if (p.target2) M.push({ kind: 'target2', shape: 'hline', price: p.target2, text: `${tag}هدف 2 ${p.target2}`, color: '#2ecc71', style: 2 });
@@ -495,7 +523,7 @@
     ['entry', 'stop', 'target'].forEach((x) => (plan[x] = tick(plan[x])));
     plan.rr = r2((plan.target - plan.entry) / (plan.entry - plan.stop)); plan.stopATR5 = r2((plan.entry - plan.stop) / atr5);
     plan.movePct = r2((plan.target / plan.entry - 1) * 100); plan.entryDistATR5 = r2((last - plan.entry) / atr5);
-    plan.exitBy = '14:20'; plan.noEntryAfter = '13:30';
+    plan.exitBy = '14:10'; plan.noEntryAfter = '13:30';
     T0.plan = plan;
     const sp = D.page && D.page.book && D.page.book.spreadPct;
     T0.drop = Math.abs(T0.dayChg || 0) >= 17 ? 'limit' : (T0.daily.avgValueM || 0) < 20 ? 'thin' : sp != null && sp > 0.3 ? 'spread' : plan.rr < 2 ? 'rr' : null;
@@ -591,17 +619,40 @@
   }
 
   async function market() {
-    const o = await open('EGX30'); await setRes('1D');
-    const { B } = await bars(); const C = B.map((b) => b.c), n = C.length;
-    if (n < 210) return { ok: false, error: 'EGX30 chart not loaded', open: o };
+    const o = await open('EGX30');
+    if (!o.ok) { S.index = null; store('index', null); return { ok: false, error: 'EGX30 could not be verified', open: o }; }
+    await setRes('1D');
+    let { B } = await bars();
+    let live = null;
+    if (B.length && page().market === 'open' && dt(B[B.length - 1].t) === cairo(Date.now() / 1000).d) { live = B[B.length - 1]; B = B.slice(0, -1); }
+    const idx = indexFrom(B, live);
+    if (!idx) return { ok: false, error: 'EGX30 chart not loaded', open: o };
+    S.index = idx; store('index', S.index); return { ok: true, ...S.index };
+  }
+  // regime and relative-strength base from finished EGX30 daily bars (also used by tests/backtest.js, one day at a time)
+  function indexFrom(B, live = null) {
+    const C = B.map((b) => b.c), n = C.length;
+    if (n < 210) return null;
     const ma = (k, end = n) => C.slice(end - k, end).reduce((a, b) => a + b, 0) / k;
     const ma50 = ma(50), ma50p = ma(50, n - 20), ma200 = ma(200), ma20 = ma(20), last = C[n - 1];
     const rising = ma50 > ma50p;
-    const regime = last > ma50 && rising && last > ma200 ? 'Up' : last < ma50 && !rising && last < ma200 ? 'Down' : 'Correction';
+    const regime = last > ma50 && rising && last > ma200 ? 'Up' : last < ma50 && !rising && last < ma200 ? 'Down' : 'Mixed';
     const hi = Math.max(...B.map((b) => b.h));
     const { PH, PL } = pivots(B, n - 130);
-    S.index = { spark: C.slice(-60).map((x) => r2(x)), date: dt(B[n - 1].t), last: r2(last), ma20: r2(ma20), ma50: r2(ma50), ma50Slope: r2((ma50 / ma50p - 1) * 100), ma200: r2(ma200), ch20: r2((last / C[n - 21] - 1) * 100), ch60: r2((last / C[n - 61] - 1) * 100), chgToday: r2((last / C[n - 2] - 1) * 100), fromHigh: r2((last / hi - 1) * 100), regime, lastHighs: PH.slice(-2).map((p) => [p.d, r2(p.p)]), lastLows: PL.slice(-2).map((p) => [p.d, r2(p.p)]) };
-    store('index', S.index); return { ok: true, ...S.index };
+    return { spark: C.slice(-60).map((x) => r2(x)), date: dt(B[n - 1].t), start20: dt(B[n - 21].t), start60: dt(B[n - 61].t), last: r2(last), ma20: r2(ma20), ma50: r2(ma50), ma50Slope: r2((ma50 / ma50p - 1) * 100), ma200: r2(ma200), ch20: r2((last / C[n - 21] - 1) * 100), ch60: r2((last / C[n - 61] - 1) * 100), chgToday: r2(live ? (live.c / last - 1) * 100 : (last / C[n - 2] - 1) * 100), fromHigh: r2((last / hi - 1) * 100), regime, lastHighs: PH.slice(-2).map((p) => [p.d, r2(p.p)]), lastLows: PL.slice(-2).map((p) => [p.d, r2(p.p)]) };
+  }
+  // backtest data: opens EGX30 and every ticker on 1D and saves the chart's own bars as ONE file in the browser's Downloads folder
+  // (no tokens spent on reading them). Then: node tests/backtest.js ~/Downloads/egx-bars-YYYY-MM-DD.json
+  async function downloadBars(tks = []) {
+    const out = { made: new Date().toISOString(), egxjs: VERSION, bars: {}, failed: [] };
+    for (const tk of ['EGX30', ...tks.map((x) => String(x).toUpperCase())]) {
+      const o = await open(tk);
+      if (!o.ok || !(await setRes('1D'))) { out.failed.push(tk); continue; }
+      const { B } = await bars(); out.bars[tk] = B.map((b) => [b.t, b.o, b.h, b.l, b.c, b.v]);
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(out)], { type: 'application/json' }));
+    a.download = 'egx-bars-' + out.made.slice(0, 10) + '.json'; document.body.appendChild(a); a.click(); a.remove();
+    return { ok: !out.failed.length, file: a.download, tickers: Object.keys(out.bars).length, failed: out.failed };
   }
 
   // viewport rectangle of the chart (CSS px) -> pass to the computer `zoom` action with save_to_disk
@@ -631,7 +682,7 @@
   async function deep(tk, opts = {}) {
     if (!opts.alreadyOpen) { const o = await open(tk); if (!o.ok) return { ok: false, ...o }; }
     if (!(await setRes('1D'))) return { ok: false, tk, error: 'could not switch the chart to 1D' };
-    const R = await analyze(tk, { ...opts, history: true });
+    const R = await analyze(tk, opts); // setup history is off: it tested touches of a zone built from those same touches (biased)
     R.page = page();
     if (opts.financials !== false) R.financials = await financials();
     R.candles = await candlesNow(120);
@@ -643,11 +694,21 @@
   async function candlesNow(k = 120) { const { B } = await bars(); return B.slice(-k).map((b) => [dt(b.t), tick(b.o), tick(b.h), tick(b.l), tick(b.c)]); }
 
   // export stored results; full detail for `full` tickers, summary rows for the rest
+  // checksum of the numbers that decide money, so a retyped export cannot change them unnoticed (egx_gates.py: sig_of)
+  const fx = (x) => (x == null ? '-' : typeof x === 'number' ? x.toFixed(4) : x === true ? '1' : x === false ? '0' : String(x));
+  function sigOf(R) {
+    const p = R.plan || {}, rc = R.receipts || {}, T = R.t0 || {}, tp = T.plan || {}, tr = T.receipts || {};
+    const a = [R.tk, R.last, p.entry, p.stop, p.target, p.target2, p.rr, p.maxEntry, R.drop, (R.score || {}).total, (rc.open || {}).at, (rc.analyse || {}).at, (rc.draw || {}).at, (rc.draw || {}).made, (rc.verify || {}).at, (rc.verify || {}).ok,
+      tp.entry, tp.stop, tp.target, T.drop, (tr.analyse || {}).at, (tr.draw || {}).at, (tr.verify || {}).at, (tr.verify || {}).ok].map(fx).join('|');
+    let h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (let i = 0; i < a.length; i++) { const c = a.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619) >>> 0; h2 = Math.imul((h2 + c) ^ (h2 >>> 13), 2246822519) >>> 0; }
+    return ('0000000' + h1.toString(16)).slice(-8) + ('0000000' + h2.toString(16)).slice(-8);
+  }
   function exportRun(full = [], extra = {}) {
-    const out = { egxjs: VERSION, index: S.index, stocks: [] };
+    const out = { egxjs: VERSION, index: S.index, calls: S.calls, stocks: [] };
     for (const [tk, R] of Object.entries(S.results)) {
-      if (full.includes(tk)) out.stocks.push(R);
-      else out.stocks.push({ tk, title: R.title, last: R.last, chg: R.chg, spark: R.spark, trend: R.trend, rs: R.rs, plan: R.plan, volume: R.volume && { avgValueM: R.volume.avgValueM }, score: R.score, drop: R.drop, bars: R.bars, receipts: R.receipts, t0: R.t0 && { plan: R.t0.plan, drop: R.t0.drop, receipts: R.t0.receipts } });
+      if (full.includes(tk)) out.stocks.push({ ...R, sig: sigOf(R) });
+      else out.stocks.push({ sig: sigOf(R), tk, title: R.title, last: R.last, chg: R.chg, spark: R.spark, trend: R.trend, rs: R.rs, plan: R.plan, volume: R.volume && { avgValueM: R.volume.avgValueM }, score: R.score, drop: R.drop, bars: R.bars, receipts: R.receipts, t0: R.t0 && { plan: R.t0.plan, drop: R.t0.drop, receipts: R.t0.receipts } });
     }
     return JSON.stringify({ ...out, ...extra });
   }
@@ -668,7 +729,17 @@
   // receipts of one ticker (what egx.py check reads)
   const receipts = (tk) => { const R = S.results[tk]; return R ? { tk, daily: R.receipts || null, t0: R.t0 ? R.t0.receipts : null } : null; };
 
-  window.EGX = { version: VERSION, open, bars, analyze, scan, deep, draw, verifyChart, intraday, drawT0, daily, receipts, page, holdings, financials, market, marketPage, candlesNow, chartRect,
-    get: (tk) => S.results[tk], summary: (tk) => summary(S.results[tk]), exportRun, exportToPage, clearExport, reset: () => { S.results = {}; store('results', {}); return 'ok'; } };
+  // call log: every public call is recorded as [fn, ticker, time, ok] and travels with the export, so egx.py can prove
+  // which page functions really ran and when (EGX.market, chartRect after the verify, daily after a T0 screenshot, each scan).
+  const logged = (fn, f) => (...a) => {
+    const rec = [fn, typeof a[0] === 'string' ? a[0].toUpperCase() : null, Date.now(), 1];
+    S.calls.push(rec); if (S.calls.length > 300) S.calls.splice(0, S.calls.length - 300);
+    const end = (r, bad) => { rec[3] = bad || r == null || r.ok === false || (typeof r === 'string' && r.includes('| UNKNOWN')) ? 0 : 1; store('calls', S.calls); return r; };
+    try { const r = f(...a); return r && typeof r.then === 'function' ? r.then((x) => end(x), (e) => { end(null, true); throw e; }) : end(r); } catch (e) { end(null, true); throw e; }
+  };
+  const L = { scan, deep, draw, verifyChart, intraday, drawT0, daily, page, holdings, market, marketPage, chartRect, exportToPage, clearExport };
+  for (const k of Object.keys(L)) L[k] = logged(k, L[k]);
+  window.EGX = { version: VERSION, open, bars, analyze, ...L, receipts, financials, candlesNow, calls: () => S.calls,
+    get: (tk) => S.results[tk], summary: (tk) => summary(S.results[tk]), exportRun, sigOf, downloadBars, _setIndexBars: (rows) => { S.index = indexFrom(rows.map((r) => ({ t: r[0], o: r[1], h: r[2], l: r[3], c: r[4], v: r[5] || 0 }))); return S.index; }, reset: () => { S.results = {}; store('results', {}); return 'ok'; } };
 })();
 'EGX ' + window.EGX.version + ' ready';

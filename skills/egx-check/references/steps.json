@@ -1,0 +1,1051 @@
+{
+ "version": 1,
+ "about": "Every command is a list of steps; every step is a list of atomic steps. egx.py keeps a ledger of them (egx.py step ...). proof: auto = the script proves it from run.json, the receipts and files; cmd = egx.py records it when that subcommand runs; attest = Claude records what it saw with --proof. scope: run = once per command, stock = once per ticker in the ledger. blocks: verdict = the stock is ⏳ without it; report = no report without it; finish = shown as ✘ in the final summary.",
+ "skip_reasons": {
+  "dropped": "the chart script dropped the stock (checked by the script)",
+  "failed-upstream": "an earlier atomic step of the same ticker failed twice (checked by the script)",
+  "no-sheet": "trade_log_sheet_id is empty in the config (checked by the script)",
+  "sheets-off": "the Google Sheets connector is not available (give the tool error as --proof)",
+  "no-drive-folder": "drive_folder_id is empty in the config (checked by the script)",
+  "drive-off": "the Google Drive connector is not available (give the tool error as --proof)",
+  "no-open-calls": "egx.py open says nothing is open (checked by the script)"
+ },
+ "steps": {
+  "C0": {
+   "title": "Setup",
+   "atoms": [
+    {
+     "id": "C0.1",
+     "proof": "cmd",
+     "cmd": "config",
+     "blocks": "report",
+     "do": "python3 $S/egx.py config"
+    },
+    {
+     "id": "C0.2",
+     "proof": "attest",
+     "blocks": "report",
+     "skip_if": [
+      "no-sheet",
+      "sheets-off"
+     ],
+     "proof_re": "\\d",
+     "do": "Read the Settings tab of the trade-log Sheet (risk %, equity, fees, fixed costs); Settings wins over config",
+     "proof_hint": "risk % and equity exactly as read"
+    },
+    {
+     "id": "C0.3",
+     "proof": "attest",
+     "blocks": "report",
+     "do": "Load the Chrome tools in one ToolSearch call, open a new tab on https://x.thndr.app/workspaces/default/trade, wait 3 s; stop and tell the user if Chrome is not connected or the login / 2FA screen shows",
+     "proof_hint": "tab id and what the page shows (chart visible, no login screen)"
+    },
+    {
+     "id": "C0.4",
+     "proof": "attest",
+     "blocks": "report",
+     "proof_re": "3\\.3\\.1\\b",
+     "do": "Load the page script: EGX.version must be 3.3.1 (else run egx_chart.loader.js once and read EGX.version again)",
+     "proof_hint": "the EGX.version value returned by javascript_tool"
+    },
+    {
+     "id": "C0.5",
+     "proof": "auto",
+     "check": "market_regime",
+     "blocks": "report",
+     "do": "await EGX.market() (EGX30 regime, today's change); proven from the export (market.egx30 + calls)"
+    }
+   ]
+  },
+  "C1": {
+   "title": "Outcome tracking",
+   "atoms": [
+    {
+     "id": "C1.1",
+     "proof": "cmd",
+     "cmd": "open",
+     "blocks": "report",
+     "do": "python3 $S/egx.py open (calls still waiting for an outcome)"
+    },
+    {
+     "id": "C1.2",
+     "proof": "attest",
+     "blocks": "report",
+     "skip_if": [
+      "no-open-calls"
+     ],
+     "do": "For each open call (at most 10, oldest first): read the bars after the call and record the result with egx.py outcome RUN TICKER RESULT DATE, or leave it open when neither stop nor target nor expiry happened",
+     "proof_hint": "each open call and what was recorded, e.g. 'COMI target 2026-11-12; HRHO still open'"
+    }
+   ]
+  },
+  "K1": {
+   "title": "Memory first",
+   "atoms": [
+    {
+     "id": "K1.1",
+     "proof": "cmd",
+     "cmd": "recall",
+     "blocks": "verdict",
+     "do": "python3 $S/egx.py recall TICKER"
+    },
+    {
+     "id": "K1.2",
+     "proof": "cmd",
+     "cmd": "news",
+     "blocks": "verdict",
+     "do": "python3 $S/egx.py news TICKER --since <30 days ago> (never search or fetch these again)"
+    }
+   ]
+  },
+  "K2": {
+   "title": "Open + analyse",
+   "atoms": [
+    {
+     "id": "K2.1",
+     "proof": "auto",
+     "check": "open_receipt",
+     "blocks": "verdict",
+     "do": "await EGX.deep('TICKER'): the open receipt names this ticker and was made in this run"
+    },
+    {
+     "id": "K2.2",
+     "proof": "auto",
+     "check": "open_header",
+     "blocks": "verdict",
+     "do": "The chart header (or chart title) shows the ticker"
+    },
+    {
+     "id": "K2.3",
+     "proof": "auto",
+     "check": "analyse_receipt",
+     "blocks": "verdict",
+     "do": "Analysis receipt from page script 3.3 on 60+ daily bars, made after the open"
+    },
+    {
+     "id": "K2.4",
+     "proof": "auto",
+     "check": "plan_or_drop",
+     "blocks": "verdict",
+     "do": "The script returned a plan (entry, stop) or a drop reason; never invent either"
+    },
+    {
+     "id": "K2.5",
+     "proof": "auto",
+     "check": "page_read",
+     "blocks": "verdict",
+     "do": "The page panel was read by the script (cash, order book, price band)"
+    }
+   ]
+  },
+  "K3": {
+   "title": "News",
+   "atoms": [
+    {
+     "id": "K3.1",
+     "proof": "auto",
+     "check": "news_query_ar",
+     "blocks": "verdict",
+     "do": "One Arabic WebSearch from the templates in news-sources.md, logged in news_queries {query, results}"
+    },
+    {
+     "id": "K3.2",
+     "proof": "auto",
+     "check": "news_query_en",
+     "blocks": "verdict",
+     "do": "One English WebSearch from the templates, logged in news_queries"
+    },
+    {
+     "id": "K3.3",
+     "typed": true,
+     "proof": "auto",
+     "check": "news_whitelist",
+     "blocks": "verdict",
+     "do": "Keep only items whose URL is on the whitelist, with the right tier"
+    },
+    {
+     "id": "K3.4",
+     "typed": true,
+     "proof": "auto",
+     "check": "news_opened",
+     "blocks": "verdict",
+     "do": "Open every kept item with WebFetch and read its date from the page (opened: true, date YYYY-MM-DD; Bloomberg: paywalled: true)"
+    },
+    {
+     "id": "K3.5",
+     "typed": true,
+     "proof": "auto",
+     "check": "news_fields",
+     "blocks": "verdict",
+     "do": "Every item has impact (+ / 0 / -), material (true/false), fresh (true/false) and a one-line summary; no dated item at all = news: [] and news_checked: true"
+    },
+    {
+     "id": "K3.6",
+     "typed": true,
+     "proof": "auto",
+     "check": "red_events_checked",
+     "blocks": "verdict",
+     "do": "Red events (results date, ex-date, suspension, capital increase) searched on EGX first: red_events_checked {query, found, url}; every red event has type, source and a date or \"unknown\""
+    },
+    {
+     "id": "K3.7",
+     "typed": true,
+     "proof": "auto",
+     "check": "catalysts_classified",
+     "blocks": "verdict",
+     "do": "Catalysts of the last 30 days for this ticker are in catalysts[] with sources; a corporate event without an EGX disclosure or two Tier-2 sources is status: rumour"
+    }
+   ]
+  },
+  "K4": {
+   "title": "Draw",
+   "atoms": [
+    {
+     "id": "K4.1",
+     "proof": "auto",
+     "check": "draw_complete",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "do": "await EGX.draw('TICKER', {events}) after the news step: ok with made == planned, nothing failed"
+    },
+    {
+     "id": "K4.2",
+     "proof": "auto",
+     "check": "draw_events",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "do": "Every dated red event was passed in events and drawn as an event line"
+    },
+    {
+     "id": "K4.3",
+     "proof": "auto",
+     "check": "draw_mas",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "do": "MA50 and MA200 are on the chart"
+    }
+   ]
+  },
+  "K5": {
+   "title": "Verify the chart",
+   "atoms": [
+    {
+     "id": "K5.1",
+     "proof": "auto",
+     "check": "verify_ok",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "do": "await EGX.verifyChart('TICKER') returns ok:true after the last draw (not ok: read problems, draw once more, verify again)"
+    }
+   ]
+  },
+  "K6": {
+   "title": "Screenshot",
+   "atoms": [
+    {
+     "id": "K6.1",
+     "proof": "attest",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "proof_re": "\\d",
+     "do": "Move the mouse off the chart (computer mouse_move to the watchlist) so no crosshair is in the picture",
+     "proof_hint": "the coordinates the mouse was moved to"
+    },
+    {
+     "id": "K6.2",
+     "proof": "auto",
+     "check": "chartrect_after_verify",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "do": "EGX.chartRect(4) called after the verify (region + viewport for the crop)"
+    },
+    {
+     "id": "K6.3",
+     "proof": "auto",
+     "check": "screenshot_file",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "do": "computer zoom on the scaled region with save_to_disk; the saved path is in screenshot; the file is an image saved after the verify and within 30 minutes of it"
+    }
+   ]
+  },
+  "K7": {
+   "title": "Write-up",
+   "atoms": [
+    {
+     "id": "K7.1",
+     "proof": "auto",
+     "check": "reasons_ok",
+     "blocks": "verdict",
+     "do": "sector set and 3-5 reasons in Egyptian Arabic, each with its evidence (dates, numbers, sources); a dropped stock needs at least 1"
+    }
+   ]
+  },
+  "T1": {
+   "title": "T0 clock and eligibility",
+   "atoms": [
+    {
+     "id": "T1.1",
+     "proof": "attest",
+     "blocks": "verdict",
+     "skip_if": [
+      "no-sheet",
+      "sheets-off"
+     ],
+     "do": "Daily brake: read the Trades tab for a T0 trade closed today at a loss (Source starts with Scan T0 / Check T0); if there is one, analysis only",
+     "proof_hint": "what the Trades tab shows for today"
+    },
+    {
+     "id": "T1.2",
+     "typed": true,
+     "proof": "auto",
+     "check": "t0_eligibility",
+     "blocks": "verdict",
+     "do": "T0 eligibility recorded: t0_eligibility {status: confirmed|unknown, how}; t0_eligible: true only with a dated EGX list or the user seeing the T0 option in ThndrX"
+    }
+   ]
+  },
+  "T2": {
+   "title": "T0 analyse",
+   "atoms": [
+    {
+     "id": "T2.1",
+     "proof": "auto",
+     "check": "market_today",
+     "blocks": "verdict",
+     "do": "await EGX.market() in this run (today's EGX30 change)"
+    },
+    {
+     "id": "T2.2",
+     "proof": "auto",
+     "check": "open_receipt",
+     "blocks": "verdict",
+     "do": "await EGX.intraday('TICKER'): the open receipt names this ticker and was made in this run"
+    },
+    {
+     "id": "T2.3",
+     "proof": "auto",
+     "check": "t0_analyse",
+     "blocks": "verdict",
+     "do": "5-minute analysis receipt from page script 3.3, made in this run"
+    },
+    {
+     "id": "T2.4",
+     "proof": "auto",
+     "check": "t0_window",
+     "blocks": "verdict",
+     "retry": false,
+     "do": "The 5-minute read was taken Sunday-Thursday between 10:15 and 13:30 Cairo time (outside it: say so, the verdict is ⏳)"
+    },
+    {
+     "id": "T2.5",
+     "proof": "auto",
+     "check": "t0_plan_or_drop",
+     "blocks": "verdict",
+     "do": "The script returned a T0 plan (setup, entry, stop, target) or a drop reason"
+    }
+   ]
+  },
+  "T4": {
+   "title": "T0 draw",
+   "atoms": [
+    {
+     "id": "T4.1",
+     "proof": "auto",
+     "check": "t0_draw_complete",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "do": "await EGX.drawT0('TICKER'): made == planned, nothing failed"
+    }
+   ]
+  },
+  "T5": {
+   "title": "T0 verify",
+   "atoms": [
+    {
+     "id": "T5.1",
+     "proof": "auto",
+     "check": "t0_verify_ok",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "do": "await EGX.verifyChart('TICKER', {t0:true}) returns ok:true after the last drawT0"
+    }
+   ]
+  },
+  "T6": {
+   "title": "T0 screenshot",
+   "atoms": [
+    {
+     "id": "T6.1",
+     "proof": "attest",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "proof_re": "\\d",
+     "do": "Move the mouse off the chart (computer mouse_move to the watchlist)",
+     "proof_hint": "the coordinates the mouse was moved to"
+    },
+    {
+     "id": "T6.2",
+     "proof": "auto",
+     "check": "t0_chartrect",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "do": "EGX.chartRect(4) called after the T0 verify"
+    },
+    {
+     "id": "T6.3",
+     "proof": "auto",
+     "check": "t0_screenshot",
+     "blocks": "verdict",
+     "skip_if": [
+      "dropped",
+      "failed-upstream"
+     ],
+     "do": "Cropped 5-minute chart saved with zoom + save_to_disk into t0.screenshot, after the verify and within 30 minutes"
+    },
+    {
+     "id": "T6.4",
+     "proof": "auto",
+     "check": "back_to_daily",
+     "blocks": "verdict",
+     "do": "await EGX.daily() after the screenshot (the chart is back on 1D)"
+    }
+   ]
+  },
+  "C7": {
+   "title": "Export + run file",
+   "atoms": [
+    {
+     "id": "C7.1",
+     "proof": "auto",
+     "check": "export_meta",
+     "blocks": "report",
+     "do": "EGX.exportToPage([tickers]), read between EGX-EXPORT-BEGIN and EGX-EXPORT-END with get_page_text, paste into run.json: stocks (with receipts), calls, meta.egxjs = the export's egxjs, market.egx30 = the export's index"
+    },
+    {
+     "id": "C7.2",
+     "proof": "attest",
+     "blocks": "report",
+     "do": "EGX.clearExport() after the last export was read",
+     "proof_hint": "the value EGX.clearExport() returned"
+    },
+    {
+     "id": "C7.3",
+     "proof": "auto",
+     "check": "meta_complete",
+     "blocks": "report",
+     "do": "meta has command, trading_day, amount (0 unless the user gave one), equity, cash, risk_pct"
+    }
+   ]
+  },
+  "C8": {
+   "title": "Verdict",
+   "atoms": [
+    {
+     "id": "C8.1",
+     "proof": "cmd",
+     "cmd": "verdict",
+     "blocks": "report",
+     "do": "python3 $S/egx.py verdict run.json (it syncs the ledger first; never write a verdict by hand)"
+    },
+    {
+     "id": "C8.2",
+     "proof": "auto",
+     "check": "overrides_ok",
+     "blocks": "report",
+     "do": "Every verdict was computed by egx.py; an override only downgrades and has a reason"
+    },
+    {
+     "id": "C8.3",
+     "proof": "auto",
+     "check": "vs_last",
+     "blocks": "report",
+     "do": "Every deep-checked stock has vs_last: what changed since the last call in memory and why (or \"first check\")"
+    }
+   ]
+  },
+  "C9": {
+   "title": "Report, PDF, Drive",
+   "atoms": [
+    {
+     "id": "C9.1",
+     "proof": "cmd",
+     "cmd": "check",
+     "blocks": "finish",
+     "do": "python3 $S/egx.py check run.json prints OK (fix every line it prints, re-run verdict after changing data)"
+    },
+    {
+     "id": "C9.2",
+     "proof": "cmd",
+     "cmd": "report",
+     "blocks": "finish",
+     "do": "python3 $S/egx.py report run.json --out <reports folder>"
+    },
+    {
+     "id": "C9.3",
+     "proof": "auto",
+     "check": "pdf_built",
+     "blocks": "finish",
+     "do": "The PDF exists next to the HTML (or the report printed pdf_error: say so in the answer)"
+    },
+    {
+     "id": "C9.4",
+     "proof": "auto",
+     "check": "drive_recorded",
+     "blocks": "finish",
+     "skip_if": [
+      "no-drive-folder",
+      "drive-off"
+     ],
+     "do": "For every file in the drive plan with create / replace: create_file, (replace: trash_file the old id), then egx.py drive-record NAME NEW_FILE_ID"
+    },
+    {
+     "id": "C9.5",
+     "proof": "attest",
+     "blocks": "finish",
+     "do": "Send the PDF and HTML with SendUserFile when that tool exists; otherwise note the full paths and the Drive link for the answer",
+     "proof_hint": "the tool result, or the paths / link that go in the answer"
+    }
+   ]
+  },
+  "C10": {
+   "title": "Log",
+   "atoms": [
+    {
+     "id": "C10.1",
+     "proof": "attest",
+     "blocks": "finish",
+     "skip_if": [
+      "no-sheet",
+      "sheets-off"
+     ],
+     "proof_re": "\\d",
+     "do": "One Recommendations row per deep-checked pick (read column A first for the first empty row; never write column H)",
+     "proof_hint": "the row number(s) written, or the row text given to the user to paste"
+    }
+   ]
+  },
+  "C11": {
+   "title": "Finish",
+   "atoms": [
+    {
+     "id": "C11.1",
+     "proof": "cmd",
+     "cmd": "finish",
+     "blocks": "finish",
+     "do": "python3 $S/egx.py step finish: put its summary in the answer exactly as printed"
+    }
+   ]
+  },
+  "M1": {
+   "title": "Market page",
+   "atoms": [
+    {
+     "id": "M1.1",
+     "proof": "auto",
+     "check": "market_page",
+     "blocks": "report",
+     "do": "EGX.marketPage() on https://x.thndr.app/workspaces/default/market; paste it into market.page (breadth, sector pulse, USD/EGP)"
+    }
+   ]
+  },
+  "H1": {
+   "title": "Holdings",
+   "atoms": [
+    {
+     "id": "H1.1",
+     "proof": "auto",
+     "check": "holdings_read",
+     "blocks": "report",
+     "do": "Click the bottom tab الاستثمارات الحالية, then EGX.holdings(); paste the items into holdings (funds: is_fund: true); then egx.py step add --block holding <every stock held>"
+    }
+   ]
+  },
+  "H2": {
+   "title": "Actions",
+   "atoms": [
+    {
+     "id": "H2.1",
+     "proof": "attest",
+     "blocks": "report",
+     "do": "Read the open orders tab الأوامر (read only): existing stop / take-profit per holding, pending orders older than 2 days",
+     "proof_hint": "the orders seen per ticker, or 'no open orders'"
+    },
+    {
+     "id": "H2.2",
+     "proof": "auto",
+     "check": "actions_set",
+     "blocks": "report",
+     "do": "Every stock held has action (exit / sell / tighten / add / hold, first rule that applies) and reasons with evidence; add only after a complete check"
+    }
+   ]
+  },
+  "N0": {
+   "title": "Before starting",
+   "atoms": [
+    {
+     "id": "N0.1",
+     "proof": "attest",
+     "blocks": "report",
+     "proof_re": "\\d",
+     "do": "Ask the user the amount for this run (never assume) and the trading day (default: next EGX session)",
+     "proof_hint": "the user's answer: amount and day"
+    },
+    {
+     "id": "N0.2",
+     "proof": "attest",
+     "blocks": "report",
+     "do": "Confirm wait picks remain watchlist only; ask whether to run the Same-day T0 list; warn once that a scan takes a while",
+     "proof_hint": "the user's answers"
+    }
+   ]
+  },
+  "N1": {
+   "title": "Scan memory + cash",
+   "atoms": [
+    {
+     "id": "N1.1",
+     "proof": "cmd",
+     "cmd": "runs",
+     "blocks": "report",
+     "do": "python3 $S/egx.py runs --last 3"
+    },
+    {
+     "id": "N1.2",
+     "proof": "auto",
+     "check": "cash_read",
+     "blocks": "report",
+     "do": "EGX.page() read: meta.cash set; if it is below the amount, say so first"
+    }
+   ]
+  },
+  "N3": {
+   "title": "Macro",
+   "atoms": [
+    {
+     "id": "N3.1",
+     "proof": "auto",
+     "check": "macro_recorded",
+     "blocks": "report",
+     "do": "Macro items for the next 5 trading days from Tier-3 sources in market.macro (each with url and date); none found = market.macro: [] and market.macro_checked: true"
+    }
+   ]
+  },
+  "N4": {
+   "title": "The three lists",
+   "atoms": [
+    {
+     "id": "N4.1",
+     "proof": "auto",
+     "check": "list_top30",
+     "blocks": "report",
+     "do": "lists.top30 = the EGX30 constituents; lists_source.top30 {kind: official|market-cap, url, date} (official needs a whitelist url and a date)"
+    },
+    {
+     "id": "N4.2",
+     "proof": "auto",
+     "check": "list_hot",
+     "blocks": "report",
+     "do": "lists.hot from the Hot searches (corporate events, global demand themes, urgent industry: lists_source.hot_queries has all three kinds); every hot ticker has a confirmed, sourced entry in catalysts[]"
+    },
+    {
+     "id": "N4.3",
+     "proof": "auto",
+     "check": "list_t0",
+     "blocks": "report",
+     "do": "lists.t0 (only in the 10:15-13:30 session and if the user wants it) or meta.t0_status with the reason it was skipped"
+    }
+   ]
+  },
+  "N5": {
+   "title": "Quick filter",
+   "atoms": [
+    {
+     "id": "N5.1",
+     "proof": "auto",
+     "check": "quick_covered",
+     "blocks": "report",
+     "do": "EGX.scan every ticker of the Top 30 and Hot lists (batches of 8); every one is in stocks[] or in unknown[]: none may vanish"
+    },
+    {
+     "id": "N5.2",
+     "proof": "auto",
+     "check": "quick_marked",
+     "blocks": "report",
+     "do": "Stocks that are not deep-checked carry quick: true or their drop reason"
+    }
+   ]
+  },
+  "N6": {
+   "title": "Deep-check selection",
+   "atoms": [
+    {
+     "id": "N6.1",
+     "proof": "auto",
+     "check": "deep_selected",
+     "blocks": "report",
+     "do": "egx.py step add the best 3-5 survivors of each list (T0 list: --block t0); every one has category set"
+    }
+   ]
+  },
+  "N7": {
+   "title": "Ranking",
+   "atoms": [
+    {
+     "id": "N7.1",
+     "proof": "auto",
+     "check": "ranked",
+     "blocks": "report",
+     "do": "egx.py verdict ranked every list (rank fields written by the script)"
+    }
+   ]
+  },
+  "N8": {
+   "title": "Money",
+   "atoms": [
+    {
+     "id": "N8.1",
+     "proof": "cmd",
+     "cmd": "allocate",
+     "blocks": "report",
+     "do": "python3 $S/egx.py allocate run.json (never size by hand)"
+    }
+   ]
+  },
+  "L1": {
+   "title": "Log a buy",
+   "atoms": [
+    {
+     "id": "L1.1",
+     "proof": "attest",
+     "blocks": "finish",
+     "proof_re": "\\d",
+     "do": "Read Trades column A and find the first empty row and the next T### id",
+     "proof_hint": "row number and trade id"
+    },
+    {
+     "id": "L1.2",
+     "proof": "attest",
+     "blocks": "finish",
+     "proof_re": "\\d",
+     "do": "Buy fees from the Thndr e-invoice email (Gmail), else python3 $S/egx.py fees VALUE and mark 'fees estimated'",
+     "proof_hint": "the fee amount and where it came from"
+    },
+    {
+     "id": "L1.3",
+     "proof": "attest",
+     "blocks": "finish",
+     "proof_re": "\\d",
+     "do": "Write the Trades row (never the formula columns M, Q-W) with the AI verdict and plan from Recommendations",
+     "proof_hint": "the row number written and the values"
+    },
+    {
+     "id": "L1.4",
+     "proof": "attest",
+     "blocks": "finish",
+     "do": "Set Taken? = Yes on the matching Recommendations row",
+     "proof_hint": "the Recommendations row number, or 'no matching recommendation'"
+    }
+   ]
+  },
+  "L2": {
+   "title": "Log a sell",
+   "atoms": [
+    {
+     "id": "L2.1",
+     "proof": "attest",
+     "blocks": "finish",
+     "proof_re": "\\d",
+     "do": "Find the open Trades row of the ticker",
+     "proof_hint": "row number and trade id"
+    },
+    {
+     "id": "L2.2",
+     "proof": "attest",
+     "blocks": "finish",
+     "proof_re": "\\d",
+     "do": "Write Closed date, sell price, sell fees and exit reason (Target / Stop / Time / Manual); never the formula columns",
+     "proof_hint": "the values written"
+    },
+    {
+     "id": "L2.3",
+     "proof": "attest",
+     "blocks": "finish",
+     "do": "Update the Recommendation's Outcome and record it with egx.py outcome RUN TICKER RESULT DATE",
+     "proof_hint": "the Recommendations row and the egx.py outcome line"
+    },
+    {
+     "id": "L2.4",
+     "proof": "attest",
+     "blocks": "finish",
+     "proof_re": "\\d",
+     "do": "Read net P/L, return % and R multiple back from the sheet's formula columns",
+     "proof_hint": "the three numbers as the sheet shows them"
+    }
+   ]
+  },
+  "O1": {
+   "title": "Monthly",
+   "atoms": [
+    {
+     "id": "O1.1",
+     "proof": "attest",
+     "blocks": "finish",
+     "proof_re": "\\d",
+     "do": "Read Monthly!A1:L16 (this month, running average, win rate)",
+     "proof_hint": "this month's row as read"
+    },
+    {
+     "id": "O1.2",
+     "proof": "attest",
+     "blocks": "finish",
+     "proof_re": "\\d",
+     "do": "Read Monthly!N2:O7 (Recommendations hit rate, fixed costs covered or not)",
+     "proof_hint": "the values as read"
+    }
+   ]
+  },
+  "Q1": {
+   "title": "Memory answer",
+   "atoms": [
+    {
+     "id": "Q1.1",
+     "proof": "attest",
+     "blocks": "finish",
+     "do": "Answer only from egx.py recall / news / runs output; never open report HTML",
+     "proof_hint": "the egx.py commands that were run"
+    }
+   ]
+  }
+ },
+ "blocks": {
+  "swing": [
+   "K1",
+   "K2",
+   "K3",
+   "K4",
+   "K5",
+   "K6",
+   "K7"
+  ],
+  "t0": [
+   "K1",
+   "T1",
+   "K3",
+   "T2",
+   "T4",
+   "T5",
+   "T6",
+   "K7"
+  ],
+  "holding": [
+   "K1",
+   "K2",
+   "K3",
+   "K4",
+   "K5",
+   "K6"
+  ]
+ },
+ "commands": {
+  "check": {
+   "title": "check TICKER",
+   "needs_tk": "swing",
+   "seq": [
+    "C0",
+    "C1",
+    "@stocks",
+    "C7",
+    "C8",
+    "C9",
+    "C10",
+    "C11"
+   ],
+   "answer": [
+    "القرار + the checklist line from egx.py verdict",
+    "3-5 reasons with evidence + what changed since the last call",
+    "الخطة (entry, stop, target, R:R, fill likelihood, shares and EGP, fees)",
+    "خطوات ThndrX with the real numbers",
+    "what cancels the idea",
+    "report name and where it is saved",
+    "the step summary printed above",
+    "closing line (rule 8)"
+   ]
+  },
+  "check_t0": {
+   "title": "check TICKER T0",
+   "needs_tk": "t0",
+   "seq": [
+    "C0",
+    "C1",
+    "@stocks",
+    "C7",
+    "C8",
+    "C9",
+    "C10",
+    "C11"
+   ],
+   "answer": [
+    "القرار + the checklist line",
+    "reasons with evidence",
+    "T0 plan, trigger, exit by 14:10, no entry after 13:30",
+    "T0 order steps (and the missing-stop warning)",
+    "report name and where it is saved",
+    "the step summary printed above",
+    "closing line (rule 8)"
+   ]
+  },
+  "market": {
+   "title": "market",
+   "seq": [
+    "C0",
+    "M1",
+    "C7",
+    "C9",
+    "C11"
+   ],
+   "answer": [
+    "EGX30 regime with numbers, breadth, sectors",
+    "report name",
+    "the step summary printed above",
+    "closing line (rule 8)"
+   ]
+  },
+  "positions": {
+   "title": "my positions",
+   "seq": [
+    "C0",
+    "C1",
+    "H1",
+    "@holding",
+    "H2",
+    "C7",
+    "C9",
+    "C11"
+   ],
+   "answer": [
+    "one line per position: action + why + evidence",
+    "stop suggestions and ticket steps",
+    "pending orders older than 2 days",
+    "report name",
+    "the step summary printed above",
+    "closing line (rule 8)"
+   ]
+  },
+  "scan": {
+   "title": "Scan",
+   "seq": [
+    "N0",
+    "C0",
+    "N1",
+    "C1",
+    "H1",
+    "@holding",
+    "H2",
+    "M1",
+    "N3",
+    "N4",
+    "N5",
+    "N6",
+    "@stocks",
+    "C7",
+    "C8",
+    "N7",
+    "N8",
+    "C9",
+    "C10",
+    "C11"
+   ],
+   "answer": [
+    "market line",
+    "positions",
+    "catalysts and themes",
+    "top 3 per list with verdict, checklist line, plan, shares and EGP",
+    "cash left and why",
+    "ThndrX steps",
+    "dropped stocks by reason + UNKNOWN tickers",
+    "report name and where it is saved",
+    "the step summary printed above",
+    "closing line (rule 8)"
+   ]
+  },
+  "log_buy": {
+   "title": "log a buy",
+   "seq": [
+    "L1",
+    "C11"
+   ],
+   "answer": [
+    "the row written",
+    "fees and whether estimated",
+    "the step summary printed above"
+   ]
+  },
+  "log_sell": {
+   "title": "log a sell",
+   "seq": [
+    "L2",
+    "C11"
+   ],
+   "answer": [
+    "net P/L, return %, R multiple from the sheet",
+    "the step summary printed above"
+   ]
+  },
+  "monthly": {
+   "title": "monthly",
+   "seq": [
+    "O1",
+    "C11"
+   ],
+   "answer": [
+    "this month, running average, win rate, hit rate, costs covered or not",
+    "the step summary printed above"
+   ]
+  },
+  "memory": {
+   "title": "memory",
+   "seq": [
+    "Q1",
+    "C11"
+   ],
+   "answer": [
+    "what was said, when, and the outcome",
+    "the step summary printed above"
+   ]
+  }
+ }
+}

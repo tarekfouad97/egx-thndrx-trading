@@ -9,14 +9,22 @@
     or today's 5-min bars (receipt)          opened and dated from the page
   • draw boxes, lines, events, MAs ◀───── 4. EGX.draw(tk, {events})
   • verifyChart: read every mark back     5. screenshot after the verify
-  • cash, order book, band, financials    6. run.json ──────────────────────────▶ egx.py verdict (7 gates + rules + ranking)
+  • cash, order book, band, financials    6. run.json ──────────────────────────▶ egx.py verdict (8 gates + rules + ranking)
   • holdings grid                                                                  egx.py allocate (sizing, caps, fees)
                                                                                    egx.py report: HTML + PDF, shots/,
                                                                                    history / news / runs .jsonl
                                           7. Drive: create / replace / skip ◀──── drive plan (sha256 file refs)
 ```
 
-## The 7 gates
+## Steps, atomic steps and the ledger
+Each command starts with `egx.py step start <command> run.json` and ends with `egx.py step finish`. In between, `egx.py step next` names the next atomic step and the proof it needs:
+- **script** steps are proven by `egx.py step sync` from `run.json`, the receipts, the call log (`calls`, exported by the page script) and files on disk;
+- **egx.py** steps are recorded when that subcommand runs (`recall`, `verdict`, `report`, ...), and refused if an earlier step is open;
+- **stated** steps are recorded by Claude with `egx.py step done ID --proof "<value seen>"`.
+
+The ledger (`run.ledger.jsonl`) is append-only and hash-chained; an edited ledger, an older run file or an empty one proves nothing. A step is retried once (`egx.py step fail`), then the stock is ⏳ naming it. `egx.py check` and `report` refuse to run without an intact ledger. Full design: `docs/DESIGN.md`.
+
+## The 8 gates (7 + the step ledger)
 | Gate | Receipt (written by) | Fails if |
 |---|---|---|
 | open | chart header or title shows the ticker, symbol, resolution, last bar (page script) | wrong stock |
@@ -42,7 +50,7 @@
 
 ## Files
 - `skills/egx-check/scripts/egx_chart.js`: in-page analysis, drawing, verify, T0 (source). `egx_chart.loader.js`: minified, self-caching build (`python3 build_loader.py`).
-- `egx.py`: commands. `egx_gates.py`: gates, verdict rules. `egx_page.py`: the report page. `egx_memory.py`: memory files. `egx_report.py`: the recap video.
+- `egx.py`: commands. `egx_gates.py`: gates, verdict rules. `egx_steps.py`: the step ledger. `egx_page.py`: the report page. `egx_memory.py`: memory files. `egx_report.py`: the recap video.
 - `references/analysis-rules.md`: every rule the script applies. `references/run-schema.md`: the run file. `references/news-sources.md`: the news whitelist and query templates.
 - `skills/egx-scan/references/themes.md`: global-demand themes mapped to EGX sectors.
 - `examples/sample-run.json`: a complete run built from synthetic data (used by the tests).

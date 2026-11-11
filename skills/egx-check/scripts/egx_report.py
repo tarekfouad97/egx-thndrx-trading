@@ -38,7 +38,7 @@ def recap_composition(run: dict, cfg: dict) -> str:
     meta, al = run.get("meta") or {}, run.get("allocation") or {}
     eg = ((run.get("market") or {}).get("egx30") or {})
     regime = eg.get("regime", "unknown")
-    rcol = {"Up": "#6CC4A1", "Down": "#E8766A", "Correction": "#D9894A"}.get(regime, "#D6B9B9")
+    rcol = {"Up": "#6CC4A1", "Down": "#E8766A", "Mixed": "#D9894A", "Correction": "#D9894A"}.get(regime, "#D6B9B9")
     orders = [r for r in al.get("rows") or [] if r.get("shares")][:3]
     holds = [h for h in run.get("holdings") or [] if not h.get("is_fund")][:4]
     sp = [v for v in (eg.get("spark") or []) if v is not None]

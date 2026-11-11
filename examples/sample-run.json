@@ -9,7 +9,8 @@
   "risk_pct": 2,
   "user": "Sample",
   "summary": "السوق في تصحيح، فهنشغّل نص المبلغ بس: أمر شراء دلوقتي على DEMO1 وأمر محدد على DEMO2، والباقي كاش.",
-  "include_wait_orders": true
+  "include_wait_orders": true,
+  "egxjs": "3.3.1"
  },
  "market": {
   "egx30": {
@@ -22,7 +23,7 @@
    "ch20": -3.3,
    "ch60": -3.01,
    "fromHigh": -4.1,
-   "regime": "Correction",
+   "regime": "Mixed",
    "spark": [
     56640.12,
     57009.98,
@@ -108,8 +109,8 @@
   "macro": [
    {
     "title": "CBE MPC meeting (sample)",
-    "source": "Example",
-    "url": "https://example.com/cbe",
+    "source": "Ahram Online",
+    "url": "https://english.ahram.org.eg/News/sample-cbe.aspx",
     "date": "2026-11-13"
    }
   ],
@@ -272,18 +273,21 @@
    },
    "rs": {
     "ch20": -4.32,
-    "ch60": 8.79
+    "ch60": 8.79,
+    "rs20": 1.2,
+    "rs60": 3.1
    },
    "plan": {
     "type": "pullback-at-support",
     "entry": 35.56,
     "stop": 34.6,
-    "target": 37.77,
+    "target": 38.3,
     "target2": null,
-    "rr": 2.3,
+    "rr": 2.85,
     "stopATR": 1,
     "entryDistATR": 0,
-    "fillSoon": true
+    "fillSoon": true,
+    "maxEntry": 35.8
    },
    "checks": {
     "bars": true,
@@ -1207,9 +1211,9 @@
    ],
    "sector": "Banks",
    "reasons": [
-    "Price at support zone with two dated touches",
-    "R:R above 2 and stop 1-3 ATR",
-    "No red events before the order expires"
+    "Price at support 35.65-35.7 with 2 dated touches",
+    "R:R 2.3 with the stop 1 ATR away",
+    "No red event before the order expires (EGX checked, 7 days)"
    ],
    "news": [
     {
@@ -1221,7 +1225,8 @@
      "fresh": true,
      "summary": "Profit up 20% y/y (sample item).",
      "tier": 2,
-     "opened": true
+     "opened": true,
+     "material": false
     }
    ],
    "drawn": {
@@ -1271,7 +1276,7 @@
     },
     "analyse": {
      "at": 1762630001000,
-     "version": "3.0.0",
+     "version": "3.3.1",
      "bars": 300,
      "lastBar": "2026-10-27",
      "titleMatch": true
@@ -1316,7 +1321,14 @@
      "query": "\"شركة العينة\" البورصة site:mubasher.info",
      "results": 2
     }
-   ]
+   ],
+   "red_events_checked": {
+    "query": "\"Sample Co\" disclosure site:egx.com.eg",
+    "found": false,
+    "url": null
+   },
+   "vs_last": "first check",
+   "category": "hot"
   },
   {
    "tk": "DEMO2",
@@ -1461,7 +1473,9 @@
    },
    "rs": {
     "ch20": 8.59,
-    "ch60": 5.57
+    "ch60": 5.57,
+    "rs20": 2.4,
+    "rs60": 1.1
    },
    "plan": {
     "type": "pullback-limit",
@@ -1472,7 +1486,8 @@
     "rr": 4.58,
     "stopATR": 1,
     "entryDistATR": 3.45,
-    "fillSoon": false
+    "fillSoon": false,
+    "maxEntry": 28.61
    },
    "checks": {
     "bars": true,
@@ -2403,7 +2418,9 @@
    ],
    "sector": "Real Estate",
    "reasons": [
-    "Entry is more than 2 ATR below the last close"
+    "Entry is more than 2 ATR below the last close",
+    "الدعم 28.23-28.25 اتلمس مرتين (2026-10-07 و 2026-10-11)",
+    "السعر بعيد عن الدخول، أمر محدد عند 28.41"
    ],
    "news_checked": true,
    "news": [],
@@ -2427,7 +2444,7 @@
     },
     "analyse": {
      "at": 1762630001000,
-     "version": "3.0.0",
+     "version": "3.3.1",
      "bars": 300,
      "lastBar": "2026-10-27",
      "titleMatch": true
@@ -2472,7 +2489,17 @@
      "query": "\"شركة العينة\" البورصة site:mubasher.info",
      "results": 2
     }
-   ]
+   ],
+   "red_events_checked": {
+    "query": "\"Sample Co\" disclosure site:egx.com.eg",
+    "found": false,
+    "url": null
+   },
+   "vs_last": "first check",
+   "category": "top30",
+   "page": {
+    "cash": 250.24
+   }
   },
   {
    "tk": "DEMO3",
@@ -2633,7 +2660,8 @@
     "rr": 1.3,
     "stopATR": 1.63,
     "entryDistATR": 0,
-    "fillSoon": true
+    "fillSoon": true,
+    "maxEntry": 11.79
    },
    "checks": {
     "bars": true,
@@ -3568,7 +3596,10 @@
      "date": "2026-11-06",
      "impact": "0",
      "tier": 2,
-     "opened": true
+     "opened": true,
+     "material": false,
+     "fresh": false,
+     "summary": "Sample Co 3 results date set (sample)"
     }
    ],
    "red_events": [
@@ -3599,7 +3630,7 @@
     },
     "analyse": {
      "at": 1762630001000,
-     "version": "3.0.0",
+     "version": "3.3.1",
      "bars": 300,
      "lastBar": "2026-10-27",
      "titleMatch": true
@@ -3646,7 +3677,13 @@
      "query": "\"شركة العينة\" البورصة site:mubasher.info",
      "results": 2
     }
-   ]
+   ],
+   "red_events_checked": {
+    "query": "\"Sample Co\" disclosure site:egx.com.eg",
+    "found": true,
+    "url": "https://www.egx.com.eg/en/sample-demo3"
+   },
+   "vs_last": "first check"
   },
   {
    "tk": "DEMO4",
@@ -3781,7 +3818,8 @@
     "rr": 6.56,
     "stopATR": 1,
     "entryDistATR": 6.12,
-    "fillSoon": false
+    "fillSoon": false,
+    "maxEntry": 137.34
    },
    "checks": {
     "bars": true,
@@ -4715,7 +4753,7 @@
     },
     "analyse": {
      "at": 1762630001000,
-     "version": "3.0.0",
+     "version": "3.3.1",
      "bars": 300,
      "lastBar": "2026-10-27",
      "titleMatch": true
@@ -4762,7 +4800,13 @@
     }
    ],
    "news": [],
-   "news_checked": true
+   "news_checked": true,
+   "red_events_checked": {
+    "query": "\"Sample Co\" disclosure site:egx.com.eg",
+    "found": false,
+    "url": null
+   },
+   "vs_last": "first check"
   }
  ],
  "holdings": [
@@ -5895,7 +5939,7 @@
   }
  ],
  "allocation": {
-  "regime": "Correction",
+  "regime": "Mixed",
   "half_deploy": true,
   "deploy_cap": 7643.5,
   "risk_pct": 2.0,

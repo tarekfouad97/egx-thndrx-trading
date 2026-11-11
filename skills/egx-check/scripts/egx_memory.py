@@ -76,6 +76,7 @@ def stock_line(s: dict, run: dict, fname: str, row: dict | None) -> dict:
         "why": why, "news": [news_id(n.get("url")) for n in s.get("news") or [] if n.get("url")],
         "red": [f'{e.get("type")}@{e.get("date") or "unknown"}' for e in s.get("red_events") or []],
         "gates_failed": [g["gate"] for g in s.get("gates") or [] if not g.get("ok")],
+        "steps_failed": [b["id"] for g in (run.get("steps") or {}).get("groups") or [] if g.get("tk") == s.get("tk") for b in g.get("bad") or []],
         "alloc": _clean({"sh": (row or {}).get("shares"), "egp": (row or {}).get("value"), "order": (row or {}).get("order")}) if row and row.get("shares") else None,
         "shot": s.get("_shot_file"),
         "outcome": None,
@@ -203,6 +204,8 @@ def fmt_hist(h: dict, news_by_id: dict) -> str:
         parts.append(f'   red: {", ".join(h["red"])}')
     if h.get("gates_failed"):
         parts.append(f'   failed gates: {", ".join(h["gates_failed"])}')
+    if h.get("steps_failed"):
+        parts.append(f'   atomic steps not done: {", ".join(h["steps_failed"])}')
     for i in h.get("news") or []:
         n = news_by_id.get(i)
         if n:

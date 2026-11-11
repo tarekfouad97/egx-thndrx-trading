@@ -38,7 +38,7 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 SKILL_DIR = HERE.parent
-VERSION = "3.0.0"
+VERSION = "3.3.1"
 
 DEFAULT_CONFIG = {
     "user_name": "",
@@ -52,6 +52,13 @@ DEFAULT_CONFIG = {
     "max_sector_pct": 50.0,
     "min_order_egp": 2500,
     "half_deploy_in_weak_market": True,
+    "min_net_rr": 2.0,             # a valid swing plan needs this R:R after fees
+    "max_open_risk_pct": 4.0,      # all open stop-risk together, as % of equity
+    "stop_slippage_atr": 0.5,      # a stop is assumed to fill this many ATR worse than its price
+    "sectors": ["Banks", "Non-bank Financial Services", "Real Estate", "Basic Resources", "Building Materials", "Contracting & Construction",
+                "Food, Beverages & Tobacco", "Healthcare & Pharma", "Industrial Goods & Automobiles", "IT, Media & Communication",
+                "Energy & Support Services", "Shipping & Transportation", "Textiles & Durables", "Trade & Distributors", "Travel & Leisure",
+                "Utilities", "Education Services", "Paper & Packaging"],
     "fees": {
         "per_order_egp": 2.0,
         "brokerage_custody_pct": 0.100,
@@ -89,7 +96,8 @@ def deep_merge(base: dict, over: dict) -> dict:
 
 def load_config() -> dict:
     cfg = DEFAULT_CONFIG
-    for p in (SKILL_DIR / "config.json", pathlib.Path.home() / ".egx-thndrx" / "config.json"):
+    one = os.environ.get("EGX_CONFIG")   # one explicit config file (tests, several accounts)
+    for p in ((pathlib.Path(one),) if one else (SKILL_DIR / "config.json", pathlib.Path.home() / ".egx-thndrx" / "config.json")):
         if p.exists():
             cfg = deep_merge(cfg, json.loads(p.read_text(encoding="utf-8")))
     return cfg
@@ -144,22 +152,46 @@ def fixed_monthly(cfg: dict, usd_egp: float | None) -> float:
 
 def allocate(run: dict, cfg: dict) -> dict:
     meta = run.setdefault("meta", {})
-    risk_pct = float(meta.get("risk_pct") or cfg["risk_pct"])
+    for key in ("max_stock_pct", "max_sector_pct", "min_order_egp", "max_open_risk_pct", "stop_slippage_atr", "min_net_rr"):
+        value = float(cfg.get(key, DEFAULT_CONFIG[key]))
+        if not math.isfinite(value) or value < 0:
+            raise ValueError(f"{key} must be finite and non-negative")
+    for key, value in cfg["fees"].items():
+        if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"fee {key} must be finite and non-negative")
+    risk_pct = float(meta.get("risk_pct", cfg["risk_pct"]))
+    if not math.isfinite(risk_pct) or risk_pct < 0:
+        raise ValueError("risk_pct must be finite and non-negative")
     equity = float(meta.get("equity") or 0)
     amount = float(meta.get("amount") or 0)
     regime = ((run.get("market") or {}).get("egx30") or {}).get("regime") or meta.get("regime") or "unknown"
-    weak = regime in ("Down", "Correction")
+    weak = regime in ("Down", "Mixed", "Correction")
     half = meta.get("half_deploy")
     if half is None:
         half = bool(cfg.get("half_deploy_in_weak_market")) and weak
-    cap_total = amount * (0.5 if half else 1.0)
+    if not all(math.isfinite(x) and x >= 0 for x in (equity, amount)):
+        raise ValueError("equity and amount must be finite and non-negative")
+    cash_available = meta.get("cash")
+    if cash_available is not None and (not math.isfinite(float(cash_available)) or float(cash_available) < 0):
+        raise ValueError("cash must be finite and non-negative")
+    spendable = min(amount or equity, float(cash_available)) if cash_available is not None else 0.0
+    cap_total = spendable * (0.5 if half else 1.0)
     risk_budget = equity * risk_pct / 100 if equity else amount * risk_pct / 100
     max_stock = equity * cfg["max_stock_pct"] / 100 if equity else amount
     max_sector = equity * cfg["max_sector_pct"] / 100 if equity else amount
 
+    ar = (meta.get("language") or cfg.get("language") or "ar").startswith("ar")
+    heat_cap = equity * float(cfg.get("max_open_risk_pct", 4.0)) / 100
+    slip = float(cfg.get("stop_slippage_atr") or 0)
+    open_risk = 0.0
+    unknown_holding_risk = False
     held_value, sector_value = {}, {}
     for h in run.get("holdings") or []:
         v = float(h.get("value") or 0)
+        if not h.get("is_fund") and h.get("stop") and h.get("price") and h.get("qty"):
+            open_risk += (max(0.0, float(h["price"]) - float(h["stop"])) + slip * float(h.get("atr") or 0)) * float(h["qty"]) + fees_side(float(h["stop"]) * float(h["qty"]), cfg)
+        elif not h.get("is_fund") and v > 0:
+            unknown_holding_risk = True
         held_value[h.get("tk")] = held_value.get(h.get("tk"), 0) + v
         sec = h.get("sector") or "unknown"
         if not h.get("is_fund"):
@@ -169,43 +201,71 @@ def allocate(run: dict, cfg: dict) -> dict:
     plan_of = lambda s: (((s.get("t0") or {}).get("plan")) if s.get("mode") == "t0" else s.get("plan")) or {}
     for s in run.get("stocks") or []:
         p = plan_of(s)
-        if not p.get("entry") or not p.get("stop") or p["entry"] <= p["stop"]:
+        if G.plan_problem(p):
             continue
         if (p.get("rr") or 0) < 2:
             continue  # never size a plan under 2:1, whatever the verdict says
-        if s.get("verdict") == "valid" or (s.get("verdict") == "wait" and meta.get("include_wait_orders")):
+        if s.get("verdict") == "valid":
             picks.append(s)
     picks.sort(key=lambda s: (s.get("verdict") != "valid", -(s.get("score") or {}).get("total", 0), -(plan_of(s).get("rr") or 0)))
     for h in run.get("holdings") or []:  # "add" actions compete for the same money
-        if h.get("action") == "add" and (h.get("plan") or {}).get("entry"):
-            picks.append({"tk": h["tk"], "sector": h.get("sector"), "verdict": "add", "plan": h["plan"], "score": h.get("score") or {}})
+        if h.get("action") == "add" and not h.get("check_incomplete") and (h.get("analysis") or {}).get("verdict") == "valid" and not G.plan_problem(h.get("plan") or {}):
+            picks.append({"tk": h["tk"], "sector": h.get("sector"), "verdict": "add", "plan": h["plan"], "atr": h.get("atr") or (h.get("analysis") or {}).get("atr"), "score": h.get("score") or {}})
 
-    # T0 picks are sold by 14:20, so they reuse the run amount (one T0 trade at a time) and never use up swing money
+    # All proposed orders reserve the same cash, concentration and open-risk budgets.
     picks = [s for s in picks if s.get("mode") != "t0"] + [s for s in picks if s.get("mode") == "t0"]
-    n_swing = len([s for s in picks if s.get("mode") != "t0"])
+    n_picks = len(picks)
     rows, remaining = [], cap_total
     for i, s in enumerate(picks):
         p, tk = plan_of(s) or s["plan"], s["tk"]
         is_t0 = s.get("mode") == "t0"
         entry, stop, target = float(p["entry"]), float(p["stop"]), p.get("target")
-        if is_t0:
-            share_budget = amount if amount else float("inf")
-        else:
-            share_budget = remaining / max(1, n_swing - i) if amount else float("inf")  # Check / Positions: size by risk and caps only
+        share_budget = remaining / max(1, n_picks - i)
+        atr_s = float(((s.get("t0") or {}).get("atr5") if is_t0 else s.get("atr")) or 0)
+        stop_fill = max(0.0, stop - slip * atr_s)
+        def costs(q):
+            if not q:
+                return 0.0, 0.0, 0.0
+            value = q * entry
+            buy = fees_side(value, cfg)
+            loss = q * (entry - stop_fill) + buy + fees_side(q * stop_fill, cfg)
+            gain = q * (float(target) - entry) - buy - fees_side(q * float(target), cfg)
+            return value + buy, loss, gain
         by_risk = math.floor(risk_budget / (entry - stop))
         by_money = math.floor(share_budget / (entry * 1.002)) if share_budget != float("inf") else 10**9
         by_stock = math.floor(max(0.0, max_stock - held_value.get(tk, 0)) / entry)
         sec = s.get("sector") or "unknown"
         by_sector = math.floor(max(0.0, max_sector - sector_value.get(sec, 0)) / entry)
-        shares = max(0, min(by_risk, by_money, by_stock, by_sector))
-        limit = min((("risk", by_risk), ("money", by_money), ("stock cap", by_stock), ("sector cap", by_sector)), key=lambda x: x[1])[0]
-        value = round(shares * entry, 2)
+        by_heat = math.floor(max(0.0, heat_cap - open_risk) / (entry - stop))
+        shares = max(0, min(by_risk, by_money, by_stock, by_sector, by_heat))
+        limit = min((("risk", by_risk), ("money", by_money), ("stock cap", by_stock), ("sector cap", by_sector), ("open-risk cap", by_heat)), key=lambda x: x[1])[0]
         note = ""
+        if not equity:   # no account size = no risk %, no caps: nothing is sized
+            shares, limit = 0, "no equity"
+            note = "رأس المال (equity) مش معروف: مفيش تحديد حجم" if ar else "equity unknown: nothing is sized"
+        if unknown_holding_risk:
+            shares, note = 0, "existing holding stop-risk unknown: confirm stops before adding risk"
+        # Fees have minimums; solve against exact cash and stressed stop loss, not a percentage approximation.
+        lo, hi = 0, shares
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            debit, loss, _ = costs(mid)
+            if debit <= share_budget and loss <= min(risk_budget, max(0.0, heat_cap - open_risk)):
+                lo = mid
+            else:
+                hi = mid - 1
+        shares = lo
+        if shares:
+            _, loss, gain = costs(shares)
+            if gain / loss < (1.5 if is_t0 else float(cfg.get("min_net_rr", 2.0))):
+                shares, note = 0, "net reward/risk at actual size is below the threshold after fees and stop slippage"
+        value = round(shares * entry, 2)
         if shares and value < cfg["min_order_egp"]:
-            ar = (meta.get("language") or cfg.get("language") or "ar").startswith("ar")
             note, shares, value = (f"أقل من الحد الأدنى للأمر {cfg['min_order_egp']:,} جنيه" if ar else f"below minimum order {cfg['min_order_egp']:,} EGP"), 0, 0.0
+        if not shares and not note:
+            note = "No affordable size within cash, concentration and modeled risk limits"
         buy_fee = fees_side(value, cfg) if shares else 0.0
-        order = "T0 limit, exit by 14:20" if is_t0 else "buy now" if s.get("verdict") in ("valid", "add") and (p.get("type") or "").endswith("at-support") else "limit"
+        order = "T0 limit, exit by 14:10" if is_t0 else "limit"
         row = {"tk": tk, "verdict": s.get("verdict"), "order": order, "t0": is_t0 or None,
                "shares": shares, "value": value, "entry": entry, "stop": stop, "target": target, "rr": p.get("rr"),
                "risk": round(shares * (entry - stop), 2), "limited_by": limit, "note": note, "sector": sec,
@@ -214,18 +274,30 @@ def allocate(run: dict, cfg: dict) -> dict:
             sell_t = shares * float(target) if target else 0
             sell_s = shares * stop
             row["gain_if_target"] = round(sell_t - value - buy_fee - fees_side(sell_t, cfg), 2) if target else None
-            row["loss_if_stop"] = round(value - sell_s + buy_fee + fees_side(sell_s, cfg), 2)
-            if not is_t0:
-                remaining -= value + buy_fee
-                held_value[tk] = held_value.get(tk, 0) + value
-                sector_value[sec] = sector_value.get(sec, 0) + value
+            atr_s = float(((s.get("t0") or {}).get("atr5") if is_t0 else s.get("atr")) or 0)
+            row["slippage_if_stop"] = round(shares * (stop - stop_fill), 2)
+            row["loss_if_stop"] = round(costs(shares)[1], 2)
+            row["rr_net_sized"] = round(row["gain_if_target"] / row["loss_if_stop"], 2)
+            row["risk"] = row["loss_if_stop"]
+            open_risk += costs(shares)[1]
+            remaining -= value + buy_fee
+            held_value[tk] = held_value.get(tk, 0) + value
+            sector_value[sec] = sector_value.get(sec, 0) + value
         rows.append(row)
 
-    deployed = round(sum(r["value"] + r["fees_buy"] for r in rows if not r.get("t0")), 2)
+    deployed = round(sum(r["value"] + r["fees_buy"] for r in rows), 2)
     usd = (run.get("market") or {}).get("usd_egp") or meta.get("usd_egp")
     fixed = fixed_monthly(cfg, usd)
     cash = meta.get("cash")
     warnings = []
+    if cash_available is None:
+        warnings.append("Available cash is unknown: no orders sized.")
+    if unknown_holding_risk:
+        warnings.append("Existing holding risk is unknown: no additional orders sized.")
+    if meta.get("include_wait_orders"):
+        warnings.append("Wait signals are watchlist only; recheck to valid before allocating.")
+    if not equity and picks:
+        warnings.append("meta.equity مش موجود: مفيش أي أمر اتحدد حجمه" if ar else "meta.equity is missing: no order was sized")
     if cash is not None and deployed > float(cash):
         if (meta.get("language") or cfg.get("language") or "ar").startswith("ar"):
             warnings.append(f"الكاش في ThndrX {f(cash)} جنيه والخطة محتاجة {f(deployed)} جنيه: حوّل فلوس أو استرد من الصناديق الأول")
@@ -236,9 +308,11 @@ def allocate(run: dict, cfg: dict) -> dict:
         "risk_budget_per_trade": round(risk_budget, 2), "rows": rows, "deployed": deployed,
         "cash_left": round(amount - deployed, 2) if amount else None,
         "total_risk": round(sum(r["risk"] for r in rows), 2),
+        "total_risk_pct": round(sum(r["risk"] for r in rows) / equity * 100, 2) if equity else None,
+        "open_risk_after": round(open_risk, 2), "open_risk_cap": round(heat_cap, 2),
         "gain_if_all_targets": round(sum(r.get("gain_if_target") or 0 for r in rows), 2),
         "loss_if_all_stops": round(sum(r.get("loss_if_stop") or 0 for r in rows), 2),
-        "fixed_monthly": fixed,
+        "fixed_monthly": fixed, "usd_egp_used": usd or 54.0, "usd_egp_estimated": not bool(usd),
         "break_even_monthly_pct": round(fixed / (amount or deployed) * 100, 2) if (amount or deployed) else None,
         "capital_for_1pct_month": round(fixed * 100, 0),
         "warnings": warnings,
@@ -251,12 +325,13 @@ sys.path.insert(0, str(HERE))
 import egx_gates as G  # noqa: E402  (same folder)
 
 
-def verdicts(run: dict, cfg: dict) -> tuple[list[str], list[str]]:
-    """Compute every stock's verdict from its receipts. Returns (checklist lines, errors)."""
+def verdicts(run: dict, cfg: dict, ctx=None) -> tuple[list[str], list[str]]:
+    """Compute every stock's verdict from its receipts and the step ledger. Returns (checklist lines, errors)."""
     wl = G.whitelist(SKILL_DIR)
+    gate = ST.stock_gate(ctx) if ctx else None
     lines, errs = [], []
     for s in run.get("stocks") or []:
-        res, e = G.compute(s, run, wl, cfg, fees_side)
+        res, e = G.compute(s, run, wl, cfg, fees_side, gate)
         errs += e
         s["verdict"] = res["verdict"]
         s["verdict_by"] = "egx.py " + VERSION
@@ -277,7 +352,7 @@ def rank_score(s: dict, run: dict, cfg: dict) -> float:
     """net R:R after fees (on the run amount, or EGP 10,000) x chart score / 10"""
     p = ((s.get("t0") or {}).get("plan") if s.get("mode") == "t0" else s.get("plan")) or {}
     e, st, tg = p.get("entry"), p.get("stop"), p.get("target")
-    if not (e and st and tg) or e <= st:
+    if G.plan_problem(p):
         return 0.0
     q = max(1, math.floor(float((run.get("meta") or {}).get("amount") or 10000) / e))
     fb = fees_side(e * q, cfg)
@@ -302,9 +377,10 @@ def rank_categories(run: dict, cfg: dict) -> dict:
     return out
 
 
-def check(run: dict, cfg: dict | None = None) -> list[str]:
+def check(run: dict, cfg: dict | None = None, ctx=None) -> list[str]:
     cfg = cfg or load_config()
-    errs = []
+    errs = ST.report_problems(ctx) if ctx else ["no step ledger for this run: python3 egx.py step start <command> run.json"]
+    gate = ST.stock_gate(ctx) if ctx else None
     m = run.get("meta") or {}
     for k in ("command", "amount"):
         if m.get(k) in (None, ""):
@@ -314,10 +390,15 @@ def check(run: dict, cfg: dict | None = None) -> list[str]:
     wl = G.whitelist(SKILL_DIR)
     for s in run.get("stocks") or []:
         tk = s.get("tk", "?")
+        sp = G.sig_problem(s)
+        if sp:
+            errs.append(f"{tk}: {sp}")
+        if s.get("verdict") in ("valid", "wait") and s.get("sector") not in cfg.get("sectors", []):
+            errs.append(f"{tk}: sector '{s.get('sector')}' is not on the fixed list in config (sectors); the sector cap needs one spelling")
         if not str(s.get("verdict_by", "")).startswith("egx.py"):
             errs.append(f"{tk}: verdict not computed by egx.py (run: egx.py verdict run.json)")
             continue
-        res, e = G.compute(dict(s), run, wl, cfg, fees_side)
+        res, e = G.compute(dict(s), run, wl, cfg, fees_side, gate)
         errs += e
         if res["verdict"] != s.get("verdict"):
             errs.append(f"{tk}: verdict {s.get('verdict')} does not match the rules ({res['verdict']}); re-run egx.py verdict")
@@ -336,6 +417,137 @@ def check(run: dict, cfg: dict | None = None) -> list[str]:
 import egx_report  # noqa: E402  (video recap only)
 import egx_page  # noqa: E402
 import egx_memory  # noqa: E402
+import egx_steps as ST  # noqa: E402
+
+
+# ----------------------------------------------------------------- step ledger glue
+def load_run_safe(path) -> dict:
+    if not path or not pathlib.Path(path).exists():
+        return {}
+    try:
+        return read_json(path)
+    except ValueError as e:
+        print(f"{path} is not valid JSON yet ({e})", file=sys.stderr)
+        return {}
+
+
+def step_ctx(led, run: dict, cfg: dict):
+    def folder():
+        return pathlib.Path(((run.get("report_files") or {}).get("folder")) or reports_dir(cfg))
+
+    def known():
+        dj = folder() / "drive.json"
+        return json.loads(dj.read_text(encoding="utf-8")) if dj.exists() else {}
+    return ST.Ctx(led, run, cfg, open_lines=lambda: egx_memory.open_lines(folder()), drive_known=known)
+
+
+def ledger_ctx(run_path, run: dict, cfg: dict):
+    led = ST.Ledger.for_run(run_path)
+    return step_ctx(led, run, cfg) if led else None
+
+
+def after_cmd(a, cfg) -> None:
+    """record the atomic step this subcommand proves (cmd steps), then tick whatever became provable"""
+    led = ST.Ledger.for_run(a.run) if getattr(a, "run", None) else ST.Ledger.active()
+    if not led or led.chain_error:
+        return
+    ctx = step_ctx(led, load_run_safe(led.run_path), cfg)
+    warn = ST.log_cmd(ctx, {"history": "recall"}.get(a.cmd, a.cmd), getattr(a, "ticker", None))
+    if warn:
+        print(warn, file=sys.stderr)
+    ST.sync(ctx)
+
+
+def cmd_step(a, cfg):
+    act = a.action
+    if act == "start":
+        if not a.args:
+            raise SystemExit("usage: egx.py step start COMMAND [run.json] [--tk TICKER]")
+        command = a.args[0].lower().replace("-", "_")
+        M = ST.manifest()
+        if command not in M["commands"]:
+            raise SystemExit(f"unknown command {command}; one of: {', '.join(M['commands'])}")
+        makes_run = "C7" in M["commands"][command]["seq"]
+        run_path = (a.args[1] if len(a.args) > 1 else a.run) or ("run.json" if makes_run else None)
+        tks = [t.strip().upper() for x in a.tk or [] for t in x.split(",") if t.strip()]
+        led = ST.Ledger.start(command, run_path, tks)
+        if run_path and pathlib.Path(run_path).exists():   # never reuse an old run's data
+            pathlib.Path(run_path).replace(pathlib.Path(run_path).with_suffix(".prev.json"))
+            print(f"old {run_path} moved to {pathlib.Path(run_path).with_suffix('.prev.json').name}: this run starts empty")
+        ctx = step_ctx(led, {}, cfg)
+        ST.sync(ctx)
+        print(f"ledger started: {led.path}  (never edit it; only egx.py writes it)")
+        print(f"{M['commands'][command]['title']}: atomic steps in order")
+        print("\n".join(ST.next_lines(ctx, limit=500)))
+        return
+    led = ST.Ledger.for_run(a.run) if a.run else ST.Ledger.active()
+    if not led:
+        raise SystemExit("no step ledger: python3 egx.py step start COMMAND [run.json] [--tk TICKER]")
+    if led.chain_error:
+        raise SystemExit(led.chain_error + ": start again with egx.py step start")
+    ctx = step_ctx(led, load_run_safe(led.run_path), cfg)
+    tk = (a.tk[0].upper() if a.tk else None)
+    if tk and not led.block_of(tk) and act != "add":
+        raise SystemExit(f"{tk} is not in the ledger (tickers: {', '.join(k for k, _ in led.tks()) or 'none'}; a holding is H:TICKER)")
+    if act == "add":
+        if not a.args:
+            raise SystemExit("usage: egx.py step add TICKER [TICKER ...] [--block swing|t0|holding]")
+        block = a.block or M_default_block(led)
+        for t in a.args:
+            print(led.add_tk(t, block))
+        ST.sync(ctx)
+        print("\n".join(ST.next_lines(ctx, limit=3)))
+        return
+    pend = ST.sync(ctx)
+    if act in ("done", "skip", "fail"):
+        if not a.args:
+            raise SystemExit(f"usage: egx.py step {act} ID [--tk TICKER] ...")
+        aid = a.args[0].upper()
+        ok, msg = (ST.do_done(ctx, aid, tk, a.proof or "") if act == "done" else
+                   ST.do_skip(ctx, aid, tk, a.reason or "", a.proof or "") if act == "skip" else ST.do_fail(ctx, aid, tk, a.reason or ""))
+        print(msg)
+        ST.sync(ctx)
+        nxt = ST.next_lines(ctx, tk, limit=1)
+        print("next: " + (nxt[0] if nxt else "nothing open: egx.py step finish"))
+        sys.exit(0 if ok else 1)
+    if act == "sync":
+        sm = ST.summary(ctx)
+        print(f"{sm['done']} done, {sm['skipped']} not applicable, {sm['failed']} failed, {sm['open']} open of {sm['total']}")
+        for atom, t, note in pend:
+            print(f"not proven yet: {atom['id']}{' ' + t if t else ''}: {note}")
+        return
+    if act == "next":
+        lines = ST.next_lines(ctx, tk, limit=a.limit)
+        print("\n".join(lines) if lines else "nothing open: egx.py step finish")
+        return
+    if act == "status":
+        print(ST.text(ST.summary(ctx)))
+        return
+    if act == "finish":
+        sm = ST.summary(ctx)
+        if not [b for b in sm["bad"] if b["id"] != "C11.1" and b["status"] != "failed"]:
+            ST.log_cmd(ctx, "finish")
+            sm = ST.summary(ctx)
+        print(ST.text(sm))
+        for s in ctx.run.get("stocks") or []:
+            at = (((s.get("t0") or {}).get("receipts") or {}).get("analyse") or {}).get("at")
+            if s.get("mode") == "t0" and at and ctx.now_ms - at > 15 * 60 * 1000 and s.get("verdict") in ("valid", "wait"):
+                print(f"✘ {s.get('tk')}: the T0 plan is {int((ctx.now_ms - at) / 60000)} minutes old (stale after 15): run EGX.intraday again before answering")
+        done = not sm["open"] and not sm["chain"]
+        print(("COMPLETE: every atomic step is recorded." if done and not sm["failed"] else
+               f"FINISHED WITH {sm['failed']} FAILED STEP(S): nothing was skipped, but show every ✘ line to the user exactly as printed." if done else
+               "NOT COMPLETE: do the open ✘ steps now; if one cannot be done, step fail it and show the ✘ lines to the user exactly as printed.")
+              + " Put this summary in the answer as printed.")
+        print("the answer must include: " + " | ".join(ST.manifest()["commands"][led.command].get("answer") or []))
+        if done:
+            ptr = ST.state_dir() / "active.json"
+            if ptr.exists():
+                ptr.unlink()
+        sys.exit(0 if done else 1)
+
+
+def M_default_block(led) -> str:
+    return ST.manifest()["commands"][led.command].get("needs_tk") or ("holding" if led.command == "positions" else "swing")
 
 
 def recap_composition(run: dict, cfg: dict) -> str:
@@ -466,16 +678,27 @@ def cmd_allocate(a, cfg):
 
 def cmd_report(a, cfg):
     run = read_json(a.run)
-    errs = check(run, cfg)
+    ctx = ledger_ctx(a.run, run, cfg)
+    if ctx:
+        ST.sync(ctx)
+    errs = check(run, cfg, ctx)
     if errs:  # no --force: a report is only built from a run that passes every rule
         print("run file problems (fix them, then run egx.py verdict and report again):\n - " + "\n - ".join(errs), file=sys.stderr)
         sys.exit(2)
-    if "allocation" not in run or a.reallocate:
-        allocate(run, cfg)
+    # Never trust a cached allocation after inputs or sizing rules change.
+    allocate(run, cfg)
     folder = reports_dir(cfg, a.out)
     name = report_name(run, cfg)
     rid = name.rsplit(".", 1)[0]
     attach_screenshots(run, folder, rid)
+    sm = ST.summary(ctx, include_finish=False)   # the ledger as it stands when the report is built
+    run["steps"] = {**{k: sm[k] for k in ("command", "started", "total", "done", "skipped", "failed", "open", "attested", "typed")},
+                    "groups": [{k: g[k] for k in ("tk", "step", "title", "n", "done", "skipped", "attested", "typed")} | {"bad": [{"id": b["id"], "status": b["status"], "why": b["why"]} for b in g["bad"]]} for g in sm["groups"]]}
+    for h in run.get("holdings") or []:
+        probs = [] if h.get("is_fund") else ST.stock_problems(ctx, f"H:{h.get('tk')}")
+        h.pop("check_incomplete", None)
+        if probs:
+            h["check_incomplete"] = probs
     counts = egx_memory.save_run(folder, run, name)
     out = folder / name
     out.write_text(egx_page.build_html(run, cfg, name, VERSION, counts), encoding="utf-8")
@@ -497,6 +720,7 @@ def cmd_report(a, cfg):
     plan = drive_plan(folder, cfg, [out, pathlib.Path(pdf) if pdf else None] + [folder / f_ for f_ in egx_memory.FILES])
     if plan:
         res["drive"] = plan
+    run["report_files"] = {"folder": str(folder), "html": str(out), "pdf": pdf, "pdf_error": res.get("pdf_error") or ("--no-pdf" if a.no_pdf else None), "drive": plan}
     for s in (run.get("stocks") or []) + (run.get("holdings") or []):
         for k in ("_shot_uri", "_shot_time", "screenshot_b64"):
             s.pop(k, None)
@@ -594,7 +818,10 @@ def cmd_drive_record(a, cfg):
 
 def cmd_check(a, cfg):
     run = read_json(a.run)
-    errs = check(run, cfg)
+    ctx = ledger_ctx(a.run, run, cfg)
+    if ctx:
+        ST.sync(ctx)
+    errs = check(run, cfg, ctx)
     for s in run.get("stocks") or []:
         if s.get("gates"):
             print(G.checklist_line(s.get("tk", "?"), {"verdict": s.get("verdict"), "gates": [(g["gate"], g["ok"], g["note"]) for g in s["gates"]], "reasons": s.get("auto_reasons")}))
@@ -602,9 +829,48 @@ def cmd_check(a, cfg):
     sys.exit(1 if errs else 0)
 
 
+def cmd_manage(a, cfg):
+    """hold / partial / tighten / exit for every stock held, from the rules in egx_manage.py"""
+    import egx_manage
+    run = read_json(a.run)
+    lines = egx_manage.manage(run, VERSION)
+    write_json(a.run, run)
+    print("\n".join(lines) if lines else "no stocks held")
+
+
+def cmd_t0_signal(a, cfg):
+    """the fast T0 answer: run right after EGX.verifyChart(tk, {t0:true}) and an early export; the screenshot, report, Drive and Sheet come after it"""
+    import time
+    run = read_json(a.run)
+    wl, now_ms, n = G.whitelist(SKILL_DIR), int(time.time() * 1000), 0
+    hm = lambda ms: _dt.datetime.fromtimestamp(ms / 1000, now_local(cfg).tzinfo).strftime("%H:%M") if ms else "?"
+    for s in run.get("stocks") or []:
+        if s.get("mode") != "t0" or (a.ticker and s.get("tk") != a.ticker.upper()):
+            continue
+        n += 1
+        res = G.t0_signal(s, run, wl, cfg, fees_side, now_ms)
+        p = (s.get("t0") or {}).get("plan") or {}
+        s.setdefault("t0", {})["signal"] = {"at": now_ms, "verdict": res["verdict"], "age_s": res["age_s"], "valid_until_ms": res["valid_until_ms"],
+                                            "entry": p.get("entry"), "stop": p.get("stop"), "target": p.get("target"), "why": res.get("wait_for") or "; ".join(res.get("reasons") or [])}
+        if res["verdict"] == "valid":
+            print(f"T0 SIGNAL {s['tk']} ✅ valid until {hm(res['valid_until_ms'])} Cairo: entry {p.get('entry')} stop {p.get('stop')} target {p.get('target')} "
+                  f"(net R:R {p.get('rr_net')}), exit by 14:10. Tell the user NOW, as a signal whose screenshot and report are still to come; "
+                  f"then do the remaining steps. After {hm(res['valid_until_ms'])} it is void: run EGX.intraday and t0-signal again.")
+        else:
+            print(f"T0 SIGNAL {s['tk']} {G.ICON[res['verdict']]} {res['verdict']}: {res.get('wait_for') or '; '.join(res.get('reasons') or [])}")
+    if n:
+        write_json(a.run, run)
+    if not n:
+        print("no T0 stock in run.json (mode: \"t0\"): export and paste it first")
+        sys.exit(1)
+
+
 def cmd_verdict(a, cfg):
     run = read_json(a.run)
-    lines, errs = verdicts(run, cfg)
+    ctx = ledger_ctx(a.run, run, cfg)
+    if ctx:
+        ST.sync(ctx)
+    lines, errs = verdicts(run, cfg, ctx)
     write_json(a.run, run)
     print("\n".join(lines))
     if errs:
@@ -637,9 +903,22 @@ def main(argv=None):
     p = sp.add_parser("history"); p.add_argument("ticker"); p.add_argument("--last", type=int, default=10); p.add_argument("--dir"); p.set_defaults(fn=cmd_recall)  # old name
     p = sp.add_parser("check"); p.add_argument("run"); p.set_defaults(fn=cmd_check)
     p = sp.add_parser("verdict"); p.add_argument("run"); p.set_defaults(fn=cmd_verdict)
+    p = sp.add_parser("manage"); p.add_argument("run"); p.set_defaults(fn=cmd_manage)
+    p = sp.add_parser("t0-signal"); p.add_argument("run"); p.add_argument("--ticker"); p.set_defaults(fn=cmd_t0_signal)
     p = sp.add_parser("config"); p.set_defaults(fn=cmd_config)
+    p = sp.add_parser("step", help="atomic-step ledger: start | add | next | sync | done | skip | fail | status | finish")
+    p.add_argument("action", choices=["start", "add", "next", "sync", "done", "skip", "fail", "status", "finish"]); p.add_argument("args", nargs="*")
+    p.add_argument("--tk", action="append"); p.add_argument("--proof"); p.add_argument("--reason"); p.add_argument("--block", choices=["swing", "t0", "holding"])
+    p.add_argument("--run"); p.add_argument("--limit", type=int, default=10); p.set_defaults(fn=cmd_step)
     a = ap.parse_args(argv)
-    a.fn(a, load_config())
+    cfg = load_config()
+    try:
+        a.fn(a, cfg)
+    except SystemExit as e:
+        if e.code not in (None, 0):
+            raise
+    if a.cmd != "step":
+        after_cmd(a, cfg)
 
 
 if __name__ == "__main__":
