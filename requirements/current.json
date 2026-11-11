@@ -1,0 +1,66 @@
+[
+  {
+    "id": "REQ-SAFE-001-v1",
+    "path": "01-safety-workflow/REQ-SAFE-001-v1.md"
+  },
+  {
+    "id": "REQ-FLOW-001-v1",
+    "path": "01-safety-workflow/REQ-FLOW-001-v1.md"
+  },
+  {
+    "id": "REQ-DATA-001-v1",
+    "path": "02-market-analysis/REQ-DATA-001-v1.md"
+  },
+  {
+    "id": "REQ-DATA-002-v1",
+    "path": "02-market-analysis/REQ-DATA-002-v1.md"
+  },
+  {
+    "id": "REQ-NEWS-001-v1",
+    "path": "02-market-analysis/REQ-NEWS-001-v1.md"
+  },
+  {
+    "id": "REQ-RISK-001-v1",
+    "path": "03-signals-risk/REQ-RISK-001-v1.md"
+  },
+  {
+    "id": "REQ-T0-001-v1",
+    "path": "03-signals-risk/REQ-T0-001-v1.md"
+  },
+  {
+    "id": "REQ-T0-002-v1",
+    "path": "03-signals-risk/REQ-T0-002-v1.md"
+  },
+  {
+    "id": "REQ-POS-001-v1",
+    "path": "04-position-management/REQ-POS-001-v1.md"
+  },
+  {
+    "id": "REQ-POS-002-v1",
+    "path": "04-position-management/REQ-POS-002-v1.md"
+  },
+  {
+    "id": "REQ-BT-001-v1",
+    "path": "05-research-backtesting/REQ-BT-001-v1.md"
+  },
+  {
+    "id": "REQ-BT-002-v1",
+    "path": "05-research-backtesting/REQ-BT-002-v1.md"
+  },
+  {
+    "id": "REQ-REPORT-001-v2",
+    "path": "06-reporting/REQ-REPORT-001-v2.md"
+  },
+  {
+    "id": "REQ-REPORT-002-v1",
+    "path": "06-reporting/REQ-REPORT-002-v1.md"
+  },
+  {
+    "id": "REQ-MEM-001-v1",
+    "path": "07-memory-delivery/REQ-MEM-001-v1.md"
+  },
+  {
+    "id": "REQ-COLLAB-001-v1",
+    "path": "08-collaboration/REQ-COLLAB-001-v1.md"
+  }
+]

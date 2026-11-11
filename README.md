@@ -36,14 +36,16 @@ Two skills:
 Every check passes **8 gates** (including the step ledger). Chart operations carry script receipts; news entries and some workflow steps are supplied by Claude and checked for structure: open → analyse → news → draw → **verify** (the script reads every drawn line back from the chart) → screenshot (its file time must come after the verify) → verdict (computed by `egx.py`; Claude may only downgrade it). A failed gate makes the stock ⏳ and the answer names it.
 
 ### Reports and memory
-- **One report per run**, HTML and PDF: responsive research brief, TradingView-style charts, news per pick with source tier and date, the gate checklist and the real ThndrX screenshot. Saved in your reports folder and uploaded to your **Google Drive** folder (the PDF opens in Drive on any phone).
+- **One report per run**, HTML and PDF: dark editorial report in charcoal and electric lime, serif headings, responsive price charts, news per pick with source tier and date, the gate checklist and the real ThndrX screenshot. Saved in your reports folder and uploaded to your **Google Drive** folder (the PDF opens in Drive on any phone).
 - **Memory for Claude**: `history.jsonl`, `news.jsonl` and `runs.jsonl` next to the reports. "What did you say about HRHO?" costs about 120 tokens per past call (`egx.py recall HRHO`), outcomes are recorded when targets or stops are hit, and cached news is reused while new disclosures and corrections are searched.
 
 Reports are named `EGX_<Command>_<YYYY-MM-DD>_<HH-MM>`.
 
-## Review and report preview (v0.5)
+## Review, requirements and report preview
 
-[Open the synthetic report preview](examples/report-preview.html) · [Deep review and remaining limitations](docs/REVIEW.md)
+[Open the synthetic report preview](examples/report-preview.html) · [Earlier deep review](docs/REVIEW.md) · [Latest integration review](docs/reviews/eb92411.md)
+
+Contributors: start with the [sectioned requirements register](requirements/README.md) and [contribution guide](CONTRIBUTING.md). Every requirement has an explicit revision, such as `REQ-REPORT-001-v2`; previous revisions are retained.
 
 Only valid signals receive an allocation. Wait signals stay on the watchlist. Swing and T0 plans share cash and exposure limits; sizing includes fees and configured stop slippage. The report shows planned allocations, scenario losses, and expandable evidence on desktop and mobile. No strategy profitability has been established by these software tests.
 
